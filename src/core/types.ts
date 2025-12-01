@@ -26,6 +26,22 @@ export interface MemoryMetadata {
   timeOfDay?: 'morning' | 'afternoon' | 'evening';
 }
 
+export interface Relationship {
+  from: string; // entity name
+  to: string; // entity name
+  type: RelationshipType;
+  context?: string;
+}
+
+export type RelationshipType =
+  | 'KNOWS'
+  | 'WORKS_AT'
+  | 'LIVES_IN'
+  | 'VISITED'
+  | 'RELATED_TO'
+  | 'PART_OF'
+  | 'MENTIONED_WITH';
+
 export interface ExtractedMemory {
   summary: string;
   type: MemoryType;
@@ -34,6 +50,7 @@ export interface ExtractedMemory {
     type: EntityType;
     context?: string;
   }>;
+  relationships: Relationship[];
   temporal: {
     references: string[];
     timeOfDay?: 'morning' | 'afternoon' | 'evening';

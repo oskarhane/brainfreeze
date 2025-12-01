@@ -1,5 +1,5 @@
 import neo4j from 'neo4j-driver';
-import type { Memory, Entity } from '../core/types';
+import type { Memory, Entity, Relationship } from '../core/types';
 
 export class GraphClient {
   private driver: neo4j.Driver;
@@ -64,7 +64,11 @@ export class GraphClient {
     }
   }
 
-  async storeMemory(memory: Memory, entities: Array<{ name: string; type: string; context?: string }>): Promise<void> {
+  async storeMemory(
+    memory: Memory,
+    entities: Array<{ name: string; type: string; context?: string }>,
+    relationships: Relationship[] = []
+  ): Promise<void> {
     const session = this.driver.session();
     try {
       await session.executeWrite(async (tx) => {
@@ -88,7 +92,7 @@ export class GraphClient {
           }
         );
 
-        // Create entities and relationships
+        // Create entities and memory-entity relationships
         for (const entity of entities) {
           const normalizedName = this.normalizeEntityName(entity.name);
           await tx.run(
@@ -103,6 +107,25 @@ export class GraphClient {
               name: entity.name,
               type: entity.type,
               memoryId: memory.id,
+            }
+          );
+        }
+
+        // Create entity-entity relationships
+        for (const rel of relationships) {
+          const fromNormalized = this.normalizeEntityName(rel.from);
+          const toNormalized = this.normalizeEntityName(rel.to);
+
+          await tx.run(
+            `MATCH (from:Entity {normalizedName: $fromNormalized})
+             MATCH (to:Entity {normalizedName: $toNormalized})
+             MERGE (from)-[r:\`${rel.type}\`]->(to)
+             ON CREATE SET r.firstSeen = datetime(), r.context = $context
+             ON MATCH SET r.lastSeen = datetime()`,
+            {
+              fromNormalized,
+              toNormalized,
+              context: rel.context || '',
             }
           );
         }
@@ -213,6 +236,59 @@ export class GraphClient {
         const node = record.get('m');
         return this.nodeToMemory(node);
       });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async hybridSearch(embedding: number[], limit: number): Promise<Array<Memory & { score: number }>> {
+    const session = this.driver.session();
+    try {
+      // Step 1: Vector search for similar memories
+      const vectorResults = await this.searchByVector(embedding, limit);
+
+      // Step 2: For each memory, get connected entities and their other memories
+      const expandedResults = new Map<string, { memory: Memory; score: number }>();
+
+      for (let i = 0; i < vectorResults.length; i++) {
+        const memory = vectorResults[i];
+        const vectorScore = 1.0 - (i / vectorResults.length); // Higher rank = higher score
+
+        // Add original memory
+        expandedResults.set(memory.id, { memory, score: vectorScore });
+
+        // Find related memories through entity connections
+        const result = await session.run(
+          `MATCH (m:Memory {id: $memoryId})-[:MENTIONS]->(e:Entity)
+           MATCH (e)<-[:MENTIONS]-(related:Memory)
+           WHERE related.id <> $memoryId
+           RETURN DISTINCT related, count(e) as sharedEntities
+           ORDER BY sharedEntities DESC
+           LIMIT 5`,
+          { memoryId: memory.id }
+        );
+
+        for (const record of result.records) {
+          const relatedMemory = this.nodeToMemory(record.get('related'));
+          const sharedCount = record.get('sharedEntities').toNumber();
+          const graphScore = (sharedCount / 10) * 0.5; // Max 0.5 score from graph connections
+
+          if (!expandedResults.has(relatedMemory.id)) {
+            expandedResults.set(relatedMemory.id, {
+              memory: relatedMemory,
+              score: graphScore,
+            });
+          }
+        }
+      }
+
+      // Step 3: Sort by combined score and return top results
+      const scored = Array.from(expandedResults.values())
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map(item => ({ ...item.memory, score: item.score }));
+
+      return scored;
     } finally {
       await session.close();
     }

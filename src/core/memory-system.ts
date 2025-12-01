@@ -29,19 +29,23 @@ export class MemorySystem {
     };
 
     // 4. Store in graph
-    await this.graph.storeMemory(memory, extracted.entities);
+    await this.graph.storeMemory(memory, extracted.entities, extracted.relationships);
 
     return memory.id;
   }
 
-  async recall(query: string, limit = 5): Promise<Memory[]> {
+  async recall(query: string, limit = 5, useHybrid = false): Promise<Memory[]> {
     // 1. Generate query embedding
     const embedding = await this.openai.generateEmbedding(query);
 
-    // 2. Vector search
-    const memories = await this.graph.searchByVector(embedding, limit);
-
-    return memories;
+    // 2. Search (hybrid or simple vector)
+    if (useHybrid) {
+      const results = await this.graph.hybridSearch(embedding, limit);
+      return results.map(r => ({ ...r, score: undefined } as any as Memory)); // Strip score for now
+    } else {
+      const memories = await this.graph.searchByVector(embedding, limit);
+      return memories;
+    }
   }
 
   async exportMemories(filePath: string): Promise<number> {
@@ -86,7 +90,7 @@ export class MemorySystem {
           embedding,
           metadata: item.metadata,
         };
-        await this.graph.storeMemory(memory, []);
+        await this.graph.storeMemory(memory, [], []);
       }
       imported++;
     }

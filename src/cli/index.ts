@@ -49,13 +49,14 @@ program
   .command('recall')
   .argument('<query>', 'search query')
   .option('-l, --limit <n>', 'max results', '5')
+  .option('--hybrid', 'use hybrid search (vector + graph)', false)
   .action(async (query, opts) => {
-    const spinner = ora('Searching...').start();
+    const spinner = ora(`Searching${opts.hybrid ? ' (hybrid)' : ''}...`).start();
     let system: MemorySystem | null = null;
     try {
       system = createMemorySystem();
-      const memories = await system.recall(query, parseInt(opts.limit));
-      spinner.succeed(chalk.green(`Found ${memories.length}`));
+      const memories = await system.recall(query, parseInt(opts.limit), opts.hybrid);
+      spinner.succeed(chalk.green(`Found ${memories.length}${opts.hybrid ? ' (via hybrid search)' : ''}`));
 
       if (memories.length === 0) {
         console.log(chalk.yellow('No memories found'));

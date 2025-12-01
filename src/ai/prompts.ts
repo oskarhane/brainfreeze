@@ -9,6 +9,9 @@ Return ONLY valid JSON:
   "entities": [
     {"name": "Entity name", "type": "person|place|concept|organization", "context": "optional"}
   ],
+  "relationships": [
+    {"from": "Entity1", "to": "Entity2", "type": "KNOWS|WORKS_AT|LIVES_IN|VISITED|RELATED_TO|PART_OF|MENTIONED_WITH", "context": "optional"}
+  ],
   "temporal": {
     "references": ["yesterday", "next week"],
     "timeOfDay": "morning|afternoon|evening|null"
@@ -26,4 +29,13 @@ Types:
 - todo: tasks, commitments
 - reflection: thoughts, opinions
 
-Extract ALL people, places, orgs, concepts. Return ONLY JSON, no markdown formatting.`;
+Relationship types:
+- KNOWS: person knows person
+- WORKS_AT: person works at organization
+- LIVES_IN: person lives in place
+- VISITED: person/entity visited place
+- RELATED_TO: general connection between concepts
+- PART_OF: entity is part of larger entity
+- MENTIONED_WITH: entities co-occur (default if no explicit relationship)
+
+Extract ALL people, places, orgs, concepts AND their relationships. Return ONLY JSON, no markdown formatting.`;
