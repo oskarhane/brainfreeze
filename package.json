@@ -6,7 +6,12 @@
   "private": true,
   "scripts": {
     "memory": "bun run src/cli/index.ts",
-    "init": "bun run src/cli/index.ts init"
+    "init": "bun run src/cli/index.ts init",
+    "test": "bun test",
+    "test:dedup": "bun test tests/dedup.test.ts",
+    "test:relationships": "bun test tests/relationships.test.ts",
+    "test:hybrid": "bun test tests/hybrid-search.test.ts",
+    "test:watch": "bun test --watch"
   },
   "devDependencies": {
     "@types/bun": "latest",

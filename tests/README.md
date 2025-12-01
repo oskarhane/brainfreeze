@@ -1,6 +1,8 @@
 # Tests
 
-All test scripts use a separate `test` database in the same Neo4j instance to avoid polluting your main data.
+All tests use a separate `test` database in the same Neo4j instance to avoid polluting your main data.
+
+Tests are written using [Bun's built-in test runner](https://bun.sh/docs/cli/test).
 
 ## Setup
 
@@ -10,47 +12,66 @@ docker ps | grep brainfreeze-neo4j
 # If not running: docker start brainfreeze-neo4j
 ```
 
-### 2. Create Test Database
+### 2. Add API Keys to .env.test
 ```bash
-bash tests/setup-test-db.sh
+# Edit .env.test and add your API keys
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
 ```
 
-This will:
-- Create a `test` database in Neo4j
-- Initialize the schema on test database
-- Use `.env.test` configuration
+**Note:** Tests will automatically create the `test` database and initialize schema on first run.
 
-**Note:** Neo4j Community Edition only supports one database. If you're using Community Edition, the setup script will warn you. Consider using:
-- A separate Docker container for testing
-- Neo4j Enterprise (supports multiple databases)
-- Manually clean your main database between tests
+### Neo4j Community vs Enterprise
+- **Community Edition**: Only supports one database. Tests will warn but continue.
+- **Enterprise Edition**: Supports multiple databases. Tests use separate `test` database.
 
 ## Running Tests
 
-### Individual Tests
-
+### All Tests
 ```bash
-# Test entity deduplication
-bash tests/test-dedup.sh
-
-# Test relationships
-bash tests/test-relationships.sh
-
-# Test hybrid search
-bash tests/test-hybrid-search.sh
+bun test
 ```
 
-All tests automatically use the `test` database via `.env.test`.
-
-### NPM Scripts (coming soon)
-
+### Individual Test Suites
 ```bash
-bun run test:setup        # Create test database
-bun run test:dedup        # Run dedup test
-bun run test:relationships # Run relationship test
-bun run test:hybrid       # Run hybrid search test
-bun run test:teardown     # Clean test database
+# Entity deduplication
+bun test tests/dedup.test.ts
+# OR
+bun run test:dedup
+
+# Relationship extraction
+bun test tests/relationships.test.ts
+# OR
+bun run test:relationships
+
+# Hybrid search
+bun test tests/hybrid-search.test.ts
+# OR
+bun run test:hybrid
 ```
+
+### Watch Mode
+```bash
+bun test --watch
+# OR
+bun run test:watch
+```
+
+## Test Structure
+
+```
+tests/
+├── helpers.ts              # Test utilities
+├── dedup.test.ts          # Entity deduplication tests
+├── relationships.test.ts  # Relationship extraction tests
+├── hybrid-search.test.ts  # Hybrid search tests
+└── README.md              # This file
+```
+
+Each test suite:
+- Sets up test database automatically
+- Runs isolated tests
+- Cleans up after completion
 
 ## Configuration
 
@@ -103,14 +124,36 @@ Tests hybrid vs vector search:
 - Compares vector-only vs hybrid (vector + graph) results
 - Shows how graph connections expand results
 
-## Neo4j Browser
+## What Tests Cover
 
-View test data:
+### dedup.test.ts
+- Entity name normalization (Sarah/sarah/SARAH → single entity)
+- Original casing preservation for display
+- Memory listing functionality
+- Export to JSON with original text
+
+### relationships.test.ts
+- WORKS_AT relationship extraction
+- KNOWS relationship extraction
+- LIVES_IN relationship extraction
+- Multiple entities in single memory
+- Relationship counting and verification
+
+### hybrid-search.test.ts
+- Vector-only search baseline
+- Hybrid search with graph expansion
+- Difference between vector and hybrid results
+- Person-to-activity connections via graph
+- Semantic query handling
+
+## Viewing Test Data
+
+### Neo4j Browser
 1. Open http://localhost:7474
-2. Select database: `test` (dropdown in top-left)
+2. Select database: `test` (dropdown in top-left, Enterprise only)
 3. Run queries:
    ```cypher
-   // All memories in test db
+   // All memories
    MATCH (m:Memory) RETURN m ORDER BY m.timestamp DESC
 
    // All entities
@@ -122,24 +165,50 @@ View test data:
    RETURN a.name, type(r), b.name
    ```
 
-## Troubleshooting
+### Programmatic Access
+Tests expose `graph` client - you can add custom queries in test files.
 
-### "Could not create database"
-- You're using Neo4j Community Edition (single database only)
-- Workaround: Manually clean main database between tests or use separate container
+## Cleaning Test Data
+
+Tests automatically clean up after completion. To manually clean:
+
+```bash
+bash tests/teardown-test-db.sh
+```
+
+Or via Cypher:
+```bash
+docker exec brainfreeze-neo4j cypher-shell -u neo4j -p password -d test \
+  "MATCH (n) DETACH DELETE n;"
+```
+
+## Troubleshooting
 
 ### "Neo4j is not running"
 ```bash
 docker start brainfreeze-neo4j
-# Wait a few seconds
-bash tests/setup-test-db.sh
+# Wait a few seconds, then run tests
+bun test
 ```
 
-### Tests use main database instead of test
-- Check `.env.test` is being loaded
-- Each test script has `export $(cat .env.test | grep -v '^#' | xargs)`
-- Verify with: `echo $NEO4J_DATABASE` (should be "test")
+### "Could not create database"
+- Using Neo4j Community Edition (single database only)
+- Tests will warn but continue
+- Consider Enterprise for full isolation
 
-### Can't see test database in browser
-- Neo4j Community Edition: only "neo4j" database available
-- Neo4j Enterprise: use database dropdown in browser
+### Tests fail with API errors
+- Check `.env.test` has valid API keys
+- Verify keys work: `bun run memory "test"` (with .env.test loaded)
+
+### Import errors in tests
+- Ensure you're in project root
+- Run `bun install` to ensure dependencies
+
+## Legacy Bash Scripts
+
+The `tests/` folder still contains bash scripts for backwards compatibility:
+- `setup-test-db.sh` - Manual database setup
+- `teardown-test-db.sh` - Manual cleanup
+- `test-*.sh` - Original bash test scripts
+
+These are no longer needed but kept for reference. Use `bun test` instead.
