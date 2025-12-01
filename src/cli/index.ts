@@ -78,6 +78,87 @@ program
     }
   });
 
+// List command
+program
+  .command('list')
+  .description('List recent memories')
+  .option('-l, --limit <n>', 'max results', '10')
+  .action(async (opts) => {
+    const spinner = ora('Loading memories...').start();
+    let system: MemorySystem | null = null;
+    try {
+      system = createMemorySystem();
+      const memories = await system.listRecent(parseInt(opts.limit));
+      spinner.succeed(chalk.green(`Found ${memories.length}`));
+
+      if (memories.length === 0) {
+        console.log(chalk.yellow('No memories stored yet'));
+        return;
+      }
+
+      memories.forEach((m, i) => {
+        console.log(chalk.blue(`\n${i + 1}. ${m.summary}`));
+        console.log(chalk.gray(`   ${m.content}`));
+        console.log(chalk.dim(`   ${m.timestamp.toLocaleString()} | ${m.type}`));
+      });
+    } catch (error: any) {
+      spinner.fail(chalk.red('Failed'));
+      console.error(chalk.red(error.message));
+      process.exit(1);
+    } finally {
+      if (system) {
+        await system.close();
+      }
+    }
+  });
+
+// Export command
+program
+  .command('export')
+  .description('Export memories to JSON file')
+  .argument('<file>', 'output file path')
+  .action(async (file) => {
+    const spinner = ora('Exporting memories...').start();
+    let system: MemorySystem | null = null;
+    try {
+      system = createMemorySystem();
+      const count = await system.exportMemories(file);
+      spinner.succeed(chalk.green(`Exported ${count} memories to ${file}`));
+    } catch (error: any) {
+      spinner.fail(chalk.red('Failed'));
+      console.error(chalk.red(error.message));
+      process.exit(1);
+    } finally {
+      if (system) {
+        await system.close();
+      }
+    }
+  });
+
+// Import command
+program
+  .command('import')
+  .description('Import memories from JSON file')
+  .argument('<file>', 'input file path')
+  .option('--re-extract', 'Re-extract entities using current prompts', false)
+  .action(async (file, opts) => {
+    const spinner = ora('Importing memories...').start();
+    let system: MemorySystem | null = null;
+    try {
+      system = createMemorySystem();
+      const count = await system.importMemories(file, opts.reExtract);
+      spinner.succeed(chalk.green(`Imported ${count} memories`));
+    } catch (error: any) {
+      spinner.fail(chalk.red('Failed'));
+      console.error(chalk.red(error.message));
+      process.exit(1);
+    } finally {
+      if (system) {
+        await system.close();
+      }
+    }
+  });
+
 // Init command - setup schema
 program
   .command('init')

@@ -44,6 +44,60 @@ export class MemorySystem {
     return memories;
   }
 
+  async exportMemories(filePath: string): Promise<number> {
+    const memories = await this.graph.getAllMemories();
+    const data = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      count: memories.length,
+      memories: memories.map(m => ({
+        id: m.id,
+        originalText: m.content,
+        summary: m.summary,
+        type: m.type,
+        timestamp: m.timestamp.toISOString(),
+        metadata: m.metadata,
+        // Don't export embedding (too large)
+      })),
+    };
+
+    await Bun.write(filePath, JSON.stringify(data, null, 2));
+    return memories.length;
+  }
+
+  async importMemories(filePath: string, reExtract = false): Promise<number> {
+    const file = Bun.file(filePath);
+    const data = await file.json();
+
+    let imported = 0;
+    for (const item of data.memories) {
+      if (reExtract) {
+        // Re-extract with current prompts/models
+        await this.remember(item.originalText);
+      } else {
+        // Use stored extraction data
+        const embedding = await this.openai.generateEmbedding(item.originalText);
+        const memory: Memory = {
+          id: crypto.randomUUID(), // Generate new ID
+          content: item.originalText,
+          summary: item.summary,
+          type: item.type,
+          timestamp: new Date(item.timestamp),
+          embedding,
+          metadata: item.metadata,
+        };
+        await this.graph.storeMemory(memory, []);
+      }
+      imported++;
+    }
+
+    return imported;
+  }
+
+  async listRecent(limit = 10): Promise<Memory[]> {
+    return this.graph.getRecentMemories(limit);
+  }
+
   async close(): Promise<void> {
     await this.graph.close();
   }

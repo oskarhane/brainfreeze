@@ -8,6 +8,10 @@ export class GraphClient {
     this.driver = neo4j.driver(uri, neo4j.auth.basic(user, password));
   }
 
+  private normalizeEntityName(name: string): string {
+    return name.toLowerCase().trim();
+  }
+
   async initSchema(): Promise<void> {
     const session = this.driver.session();
     try {
@@ -30,6 +34,11 @@ export class GraphClient {
       await session.run(`
         CREATE INDEX entity_name IF NOT EXISTS
         FOR (e:Entity) ON (e.name)
+      `);
+
+      await session.run(`
+        CREATE INDEX entity_normalized_name IF NOT EXISTS
+        FOR (e:Entity) ON (e.normalizedName)
       `);
 
       // Create vector index
@@ -81,14 +90,16 @@ export class GraphClient {
 
         // Create entities and relationships
         for (const entity of entities) {
+          const normalizedName = this.normalizeEntityName(entity.name);
           await tx.run(
-            `MERGE (e:Entity {name: $name, type: $type})
-             ON CREATE SET e.id = randomUUID(), e.firstSeen = datetime()
-             ON MATCH SET e.lastSeen = datetime()
+            `MERGE (e:Entity {normalizedName: $normalizedName, type: $type})
+             ON CREATE SET e.id = randomUUID(), e.name = $name, e.firstSeen = datetime()
+             ON MATCH SET e.name = $name, e.lastSeen = datetime()
              WITH e
              MATCH (m:Memory {id: $memoryId})
              CREATE (m)-[:MENTIONS]->(e)`,
             {
+              normalizedName,
               name: entity.name,
               type: entity.type,
               memoryId: memory.id,
@@ -109,10 +120,10 @@ export class GraphClient {
          YIELD node, score
          RETURN node, score
          ORDER BY score DESC`,
-        { embedding, limit }
+        { embedding, limit: neo4j.int(limit) }
       );
 
-      return result.records.map((record) => {
+      return result.records.map((record: any) => {
         const node = record.get('node');
         return this.nodeToMemory(node);
       });
@@ -136,10 +147,10 @@ export class GraphClient {
          RETURN m
          ORDER BY m.timestamp DESC
          LIMIT $limit`,
-        { limit }
+        { limit: neo4j.int(limit) }
       );
 
-      return result.records.map((record) => {
+      return result.records.map((record: any) => {
         const node = record.get('m');
         return this.nodeToMemory(node);
       });
@@ -158,7 +169,7 @@ export class GraphClient {
         { memoryIds }
       );
 
-      return result.records.map((record) => {
+      return result.records.map((record: any) => {
         const node = record.get('e');
         return {
           id: node.properties.id,
@@ -187,6 +198,24 @@ export class GraphClient {
         timeOfDay: props.timeOfDay,
       },
     };
+  }
+
+  async getAllMemories(): Promise<Memory[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `MATCH (m:Memory)
+         RETURN m
+         ORDER BY m.timestamp ASC`
+      );
+
+      return result.records.map((record: any) => {
+        const node = record.get('m');
+        return this.nodeToMemory(node);
+      });
+    } finally {
+      await session.close();
+    }
   }
 
   async close(): Promise<void> {
