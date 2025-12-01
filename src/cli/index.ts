@@ -12,7 +12,7 @@ const program = new Command();
 
 function createMemorySystem() {
   const config = loadConfig();
-  const graph = new GraphClient(config.neo4j.uri, config.neo4j.user, config.neo4j.password);
+  const graph = new GraphClient(config.neo4j.uri, config.neo4j.user, config.neo4j.password, config.neo4j.database);
   const claude = new ClaudeClient(config.anthropic.apiKey, config.anthropic.model);
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
   return new MemorySystem(graph, claude, openai);
@@ -169,9 +169,9 @@ program
     let system: MemorySystem | null = null;
     try {
       const config = loadConfig();
-      const graph = new GraphClient(config.neo4j.uri, config.neo4j.user, config.neo4j.password);
+      const graph = new GraphClient(config.neo4j.uri, config.neo4j.user, config.neo4j.password, config.neo4j.database);
       await graph.initSchema();
-      spinner.succeed(chalk.green('Schema initialized'));
+      spinner.succeed(chalk.green(`Schema initialized on database: ${config.neo4j.database}`));
       await graph.close();
     } catch (error: any) {
       spinner.fail(chalk.red('Failed'));

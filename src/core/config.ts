@@ -6,6 +6,7 @@ export function loadConfig(): Config {
       uri: process.env.NEO4J_URI || '',
       user: process.env.NEO4J_USER || '',
       password: process.env.NEO4J_PASSWORD || '',
+      database: process.env.NEO4J_DATABASE || 'neo4j', // default to 'neo4j'
     },
     anthropic: {
       apiKey: process.env.ANTHROPIC_API_KEY || '',

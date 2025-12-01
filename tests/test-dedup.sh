@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
 
+# Load test environment
+export $(cat .env.test | grep -v '^#' | xargs)
+
 echo "Testing entity deduplication and export/import..."
-
-# Clear any existing data (you may want to backup first!)
-# docker restart brainfreeze-neo4j
-# sleep 5
-
+echo "Using test database: $NEO4J_URI"
 echo ""
+
 echo "1. Storing memories with same entities (different case)..."
 bun run memory "Met Sarah at the cafe"
 bun run memory "sarah suggested a new book"
@@ -18,14 +18,14 @@ echo "2. Listing memories..."
 bun run memory list -l 5
 
 echo ""
-echo "3. Exporting to test-export.json..."
-bun run memory export test-export.json
+echo "3. Exporting to tests/test-export.json..."
+bun run memory export tests/test-export.json
 
 echo ""
 echo "4. Contents of export file:"
-cat test-export.json | head -30
+cat tests/test-export.json | head -30
 
 echo ""
 echo "Done! Check Neo4j browser to see if Sarah/sarah/SARAH merged into one entity."
-echo "Visit: http://localhost:7474"
+echo "Visit: http://localhost:7475 (test database)"
 echo "Run: MATCH (e:Entity {type: 'person'}) RETURN e"

@@ -3,9 +3,11 @@ import type { Memory, Entity, Relationship } from '../core/types';
 
 export class GraphClient {
   private driver: neo4j.Driver;
+  private database: string;
 
-  constructor(uri: string, user: string, password: string) {
+  constructor(uri: string, user: string, password: string, database: string = 'neo4j') {
     this.driver = neo4j.driver(uri, neo4j.auth.basic(user, password));
+    this.database = database;
   }
 
   private normalizeEntityName(name: string): string {
@@ -13,7 +15,7 @@ export class GraphClient {
   }
 
   async initSchema(): Promise<void> {
-    const session = this.driver.session();
+    const session = this.driver.session({ database: this.database });
     try {
       // Create constraints and indexes
       await session.run(`
@@ -69,7 +71,7 @@ export class GraphClient {
     entities: Array<{ name: string; type: string; context?: string }>,
     relationships: Relationship[] = []
   ): Promise<void> {
-    const session = this.driver.session();
+    const session = this.driver.session({ database: this.database });
     try {
       await session.executeWrite(async (tx) => {
         // Create memory node
@@ -136,7 +138,7 @@ export class GraphClient {
   }
 
   async searchByVector(embedding: number[], limit: number): Promise<Memory[]> {
-    const session = this.driver.session();
+    const session = this.driver.session({ database: this.database });
     try {
       const result = await session.run(
         `CALL db.index.vector.queryNodes('memory_embedding', $limit, $embedding)
@@ -163,7 +165,7 @@ export class GraphClient {
   }
 
   async getRecentMemories(limit: number): Promise<Memory[]> {
-    const session = this.driver.session();
+    const session = this.driver.session({ database: this.database });
     try {
       const result = await session.run(
         `MATCH (m:Memory)
@@ -183,7 +185,7 @@ export class GraphClient {
   }
 
   async getEntitiesForMemories(memoryIds: string[]): Promise<Entity[]> {
-    const session = this.driver.session();
+    const session = this.driver.session({ database: this.database });
     try {
       const result = await session.run(
         `MATCH (m:Memory)-[:MENTIONS]->(e:Entity)
@@ -224,7 +226,7 @@ export class GraphClient {
   }
 
   async getAllMemories(): Promise<Memory[]> {
-    const session = this.driver.session();
+    const session = this.driver.session({ database: this.database });
     try {
       const result = await session.run(
         `MATCH (m:Memory)
@@ -242,7 +244,7 @@ export class GraphClient {
   }
 
   async hybridSearch(embedding: number[], limit: number): Promise<Array<Memory & { score: number }>> {
-    const session = this.driver.session();
+    const session = this.driver.session({ database: this.database });
     try {
       // Step 1: Vector search for similar memories
       const vectorResults = await this.searchByVector(embedding, limit);

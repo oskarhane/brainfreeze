@@ -1,9 +1,13 @@
 #!/bin/bash
 set -e
 
-echo "Testing hybrid search vs regular search..."
+# Load test environment
+export $(cat .env.test | grep -v '^#' | xargs)
 
+echo "Testing hybrid search vs regular search..."
+echo "Using test database: $NEO4J_URI"
 echo ""
+
 echo "1. Adding test memories..."
 bun run memory "John works at Google on AI projects"
 bun run memory "Sarah is a data scientist at Microsoft"

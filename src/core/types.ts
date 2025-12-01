@@ -80,6 +80,7 @@ export interface Config {
     uri: string;
     user: string;
     password: string;
+    database?: string; // default: 'neo4j'
   };
   anthropic: {
     apiKey: string;
