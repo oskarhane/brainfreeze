@@ -1,4 +1,6 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, setDefaultTimeout } from 'bun:test';
+
+setDefaultTimeout(30000); // 30 seconds for API calls
 import { loadTestEnv, createTestMemorySystem, setupTestDatabase, cleanTestDatabase, waitForMemoryStorage } from './helpers';
 import { loadConfig } from '../src/core/config';
 import { GraphClient } from '../src/graph/client';
@@ -33,10 +35,11 @@ describe('Entity Deduplication', () => {
     await system.remember('sarah suggested a new book');
     await system.remember('Had coffee with SARAH yesterday');
 
-    await waitForMemoryStorage();
+    await waitForMemoryStorage(200);
 
     // Query Neo4j to check entity count
-    const session = graph['driver'].session({ database: 'test' });
+    const db = process.env.NEO4J_DATABASE || 'test';
+    const session = graph['driver'].session({ database: db });
     try {
       const result = await session.run(`
         MATCH (e:Entity {type: 'person'})
@@ -57,7 +60,8 @@ describe('Entity Deduplication', () => {
   });
 
   test('should preserve original casing in display name', async () => {
-    const session = graph['driver'].session({ database: 'test' });
+    const db = process.env.NEO4J_DATABASE || 'test';
+    const session = graph['driver'].session({ database: db });
     try {
       const result = await session.run(`
         MATCH (e:Entity {normalizedName: 'sarah'})

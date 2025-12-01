@@ -1,4 +1,6 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, setDefaultTimeout } from 'bun:test';
+
+setDefaultTimeout(30000); // 30 seconds for API calls
 import { loadTestEnv, createTestMemorySystem, setupTestDatabase, cleanTestDatabase, waitForMemoryStorage } from './helpers';
 import { loadConfig } from '../src/core/config';
 import { GraphClient } from '../src/graph/client';
@@ -31,7 +33,8 @@ describe('Relationship Extraction', () => {
     await system.remember('John works at Google in San Francisco');
     await waitForMemoryStorage();
 
-    const session = graph['driver'].session({ database: 'test' });
+    const db = process.env.NEO4J_DATABASE || 'test';
+    const session = graph['driver'].session({ database: db });
     try {
       const result = await session.run(`
         MATCH (p:Entity)-[r:WORKS_AT]->(o:Entity)
@@ -55,7 +58,8 @@ describe('Relationship Extraction', () => {
     await system.remember('Sarah lives in Brooklyn and knows John from college');
     await waitForMemoryStorage();
 
-    const session = graph['driver'].session({ database: 'test' });
+    const db = process.env.NEO4J_DATABASE || 'test';
+    const session = graph['driver'].session({ database: db });
     try {
       const result = await session.run(`
         MATCH (p1:Entity)-[r:KNOWS]->(p2:Entity)
@@ -73,7 +77,8 @@ describe('Relationship Extraction', () => {
   });
 
   test('should extract LIVES_IN relationships', async () => {
-    const session = graph['driver'].session({ database: 'test' });
+    const db = process.env.NEO4J_DATABASE || 'test';
+    const session = graph['driver'].session({ database: db });
     try {
       const result = await session.run(`
         MATCH (p:Entity)-[r:LIVES_IN]->(place:Entity)
@@ -97,7 +102,8 @@ describe('Relationship Extraction', () => {
     await system.remember('Met John and Sarah at Chipotle yesterday');
     await waitForMemoryStorage();
 
-    const session = graph['driver'].session({ database: 'test' });
+    const db = process.env.NEO4J_DATABASE || 'test';
+    const session = graph['driver'].session({ database: db });
     try {
       // Check all entities mentioned
       const result = await session.run(`
@@ -118,7 +124,8 @@ describe('Relationship Extraction', () => {
   });
 
   test('should count all non-MENTIONS relationships', async () => {
-    const session = graph['driver'].session({ database: 'test' });
+    const db = process.env.NEO4J_DATABASE || 'test';
+    const session = graph['driver'].session({ database: db });
     try {
       const result = await session.run(`
         MATCH (a)-[r]->(b)

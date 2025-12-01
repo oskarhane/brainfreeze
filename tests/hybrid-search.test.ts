@@ -1,4 +1,6 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, setDefaultTimeout } from 'bun:test';
+
+setDefaultTimeout(30000); // 30 seconds for API calls
 import { loadTestEnv, createTestMemorySystem, setupTestDatabase, cleanTestDatabase, waitForMemoryStorage } from './helpers';
 
 describe('Hybrid Search', () => {
