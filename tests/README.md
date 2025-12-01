@@ -12,11 +12,11 @@ docker ps | grep brainfreeze-neo4j
 # If not running: docker start brainfreeze-neo4j
 ```
 
-### 2. Add API Keys to .env.test
+### 2. Create .env.test with API Keys
 ```bash
-# Edit .env.test and add your API keys
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+# Copy example and add your API keys
+cp .env.test.example .env.test
+# Edit .env.test and add your actual keys
 ```
 
 **Note:** Tests will automatically create the `test` database and initialize schema on first run.
