@@ -6,11 +6,16 @@ Tests are written using [Bun's built-in test runner](https://bun.sh/docs/cli/tes
 
 ## Setup
 
-### 1. Ensure Neo4j is Running
+### 1. Start Neo4j with Docker Compose
 ```bash
-docker ps | grep brainfreeze-neo4j
-# If not running: docker start brainfreeze-neo4j
+# From project root
+docker compose up -d
+
+# Check it's running
+docker compose logs neo4j
 ```
+
+The docker-compose.yml uses **Neo4j Enterprise** which supports multiple databases for isolated testing.
 
 ### 2. Create .env.test with API Keys
 ```bash
@@ -20,10 +25,6 @@ cp .env.test.example .env.test
 ```
 
 **Note:** Tests will automatically create the `test` database and initialize schema on first run.
-
-### Neo4j Community vs Enterprise
-- **Community Edition**: Only supports one database. Tests will warn but continue.
-- **Enterprise Edition**: Supports multiple databases. Tests use separate `test` database.
 
 ## Running Tests
 
@@ -186,15 +187,20 @@ docker exec brainfreeze-neo4j cypher-shell -u neo4j -p password -d test \
 
 ### "Neo4j is not running"
 ```bash
-docker start brainfreeze-neo4j
-# Wait a few seconds, then run tests
+# Start with docker-compose
+docker compose up -d
+
+# Wait for Neo4j to be ready (check health)
+docker compose ps
+
+# Then run tests
 bun test
 ```
 
 ### "Could not create database"
 - Using Neo4j Community Edition (single database only)
-- Tests will warn but continue
-- Consider Enterprise for full isolation
+- docker-compose.yml uses Enterprise by default
+- Tests will warn but continue with Community
 
 ### Tests fail with API errors
 - Check `.env.test` has valid API keys

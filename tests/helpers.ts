@@ -41,11 +41,14 @@ export async function setupTestDatabase() {
   try {
     await fetch('http://localhost:7474');
   } catch (error) {
-    throw new Error('Neo4j is not running at localhost:7474. Start with: docker start brainfreeze-neo4j');
+    throw new Error('Neo4j is not running at localhost:7474. Start with: docker compose up -d');
   }
 
   await loadTestEnv();
   const config = loadConfig();
+
+  // Wait a moment for Neo4j to be fully ready
+  await new Promise(resolve => setTimeout(resolve, 1000));
 
   // Try to create test database (only works in Enterprise)
   try {

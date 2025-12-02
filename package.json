@@ -11,7 +11,12 @@
     "test:dedup": "bun test tests/dedup.test.ts",
     "test:relationships": "bun test tests/relationships.test.ts",
     "test:hybrid": "bun test tests/hybrid-search.test.ts",
-    "test:watch": "bun test --watch"
+    "test:watch": "bun test --watch",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f neo4j",
+    "db:restart": "docker compose restart neo4j",
+    "db:clean": "docker compose down -v"
   },
   "devDependencies": {
     "@types/bun": "latest",
