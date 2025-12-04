@@ -157,13 +157,20 @@ program
 
       const rl = readline.createInterface({
         input: process.stdin,
+        output: process.stdout,
+        terminal: true,
+        prompt: chalk.green("> "),
       });
+
+      const showPrompt = () => rl.prompt();
+      const createSpinner = (text: string) =>
+        ora({ text, discardStdin: false });
 
       const handleInput = async (input: string) => {
         const trimmed = input.trim();
 
         if (!trimmed) {
-          process.stdout.write(chalk.green("> "));
+          showPrompt();
           return;
         }
 
@@ -182,7 +189,7 @@ program
           console.log(chalk.dim("  remember <text>   - Store a new memory"));
           console.log(chalk.dim("  exit / quit       - Exit chat"));
           console.log(chalk.dim("  <anything else>   - Ask a question\n"));
-          process.stdout.write(chalk.green("> "));
+          showPrompt();
           return;
         }
 
@@ -202,7 +209,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          process.stdout.write(chalk.green("> "));
+          showPrompt();
           return;
         }
 
@@ -211,11 +218,11 @@ program
           const query = trimmed.slice(7).trim();
           if (!query) {
             console.log(chalk.yellow("\nUsage: recall <query>\n"));
-            process.stdout.write(chalk.green("> "));
+            showPrompt();
             return;
           }
           try {
-            const spinner = ora("Searching...").start();
+            const spinner = createSpinner("Searching...").start();
             const memories = await system!.recall(query, 5);
             spinner.stop();
             if (memories.length === 0) {
@@ -230,7 +237,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          process.stdout.write(chalk.green("> "));
+          showPrompt();
           return;
         }
 
@@ -239,24 +246,24 @@ program
           const text = trimmed.slice(9).trim();
           if (!text) {
             console.log(chalk.yellow("\nUsage: remember <text>\n"));
-            process.stdout.write(chalk.green("> "));
+            showPrompt();
             return;
           }
           try {
-            const spinner = ora("Storing memory...").start();
+            const spinner = createSpinner("Storing memory...").start();
             const id = await system!.rememberWithContext(text, session);
             spinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
             console.log();
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          process.stdout.write(chalk.green("> "));
+          showPrompt();
           return;
         }
 
         // Default: treat as question
         try {
-          const spinner = ora("Thinking...").start();
+          const spinner = createSpinner("Thinking...").start();
           const result = await system!.chat(trimmed, session);
           spinner.stop();
 
@@ -273,7 +280,7 @@ program
           console.log(chalk.red(`Error: ${error.message}\n`));
         }
 
-        process.stdout.write(chalk.green("> "));
+        showPrompt();
       };
 
       rl.on("line", async (input) => {
@@ -289,7 +296,7 @@ program
         process.exit(0);
       });
 
-      process.stdout.write(chalk.green("> "));
+      showPrompt();
     } catch (error: any) {
       console.error(chalk.red(error.message));
       if (system) {
