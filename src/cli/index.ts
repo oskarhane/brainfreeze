@@ -244,7 +244,7 @@ program
           }
           try {
             const spinner = ora("Storing memory...").start();
-            const id = await system!.remember(text);
+            const id = await system!.rememberWithContext(text, session);
             spinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
             console.log();
           } catch (error: any) {

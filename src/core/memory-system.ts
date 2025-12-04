@@ -125,6 +125,18 @@ export class MemorySystem {
     return this.graph.getRecentMemories(limit);
   }
 
+  async rememberWithContext(
+    text: string,
+    session: ChatSession,
+  ): Promise<string> {
+    // Resolve references using conversation history
+    const history = session.getFormattedHistory();
+    const expandedText = await this.claude.resolveReferences(text, history);
+
+    // Store the expanded text
+    return this.remember(expandedText);
+  }
+
   async chat(
     question: string,
     session: ChatSession,

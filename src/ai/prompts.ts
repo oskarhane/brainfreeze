@@ -95,3 +95,24 @@ Return ONLY valid JSON:
   "answer": "Your answer here",
   "usedMemories": [1, 3]
 }`;
+
+export const RESOLVE_REFERENCES_PROMPT = `Expand pronouns and references in the text using conversation context.
+
+Conversation History:
+{HISTORY}
+
+Text to expand: {TEXT}
+
+Instructions:
+- Replace pronouns (he, she, they, it, that, this) with specific names/entities from conversation
+- Replace vague references ("that guy", "the place", "the thing") with specifics
+- Keep the meaning and tone identical
+- If a reference is unclear, keep it as-is
+- Return ONLY the expanded text, nothing else
+
+Example:
+History: "User: Who is John? Assistant: John works at Google."
+Text: "He loves coffee"
+Output: "John loves coffee"
+
+Return ONLY the expanded text.`;
