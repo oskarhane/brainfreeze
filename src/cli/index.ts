@@ -2,11 +2,13 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
+import * as readline from "readline";
 import { loadConfig } from "../core/config";
 import { MemorySystem } from "../core/memory-system";
 import { GraphClient } from "../graph/client";
 import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
+import { ChatSession } from "../core/chat-session";
 
 const program = new Command();
 
@@ -132,6 +134,168 @@ program
       if (system) {
         await system.close();
       }
+    }
+  });
+
+// Chat command - interactive REPL
+program
+  .command("chat")
+  .description("Start interactive chat session")
+  .action(async () => {
+    let system: MemorySystem | null = null;
+    const session = new ChatSession();
+
+    try {
+      system = createMemorySystem();
+
+      console.log(chalk.cyan("\nMemory Chat"));
+      console.log(
+        chalk.dim(
+          "Commands: list, recall <query>, remember <text>, help, exit\n",
+        ),
+      );
+
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const prompt = () => {
+        rl.question(chalk.green("> "), async (input) => {
+          const trimmed = input.trim();
+
+          if (!trimmed) {
+            prompt();
+            return;
+          }
+
+          // Handle exit
+          if (trimmed === "exit" || trimmed === "quit") {
+            console.log(chalk.dim("\nGoodbye!"));
+            rl.close();
+            return;
+          }
+
+          // Handle help
+          if (trimmed === "help") {
+            console.log(chalk.cyan("\nAvailable commands:"));
+            console.log(
+              chalk.dim("  list              - List recent memories"),
+            );
+            console.log(chalk.dim("  recall <query>    - Search memories"));
+            console.log(chalk.dim("  remember <text>   - Store a new memory"));
+            console.log(chalk.dim("  exit / quit       - Exit chat"));
+            console.log(chalk.dim("  <anything else>   - Ask a question\n"));
+            prompt();
+            return;
+          }
+
+          // Handle list
+          if (trimmed === "list") {
+            try {
+              const memories = await system!.listRecent(10);
+              if (memories.length === 0) {
+                console.log(chalk.yellow("\nNo memories stored yet\n"));
+              } else {
+                memories.forEach((m, i) => {
+                  console.log(chalk.blue(`\n${i + 1}. ${m.summary}`));
+                  console.log(chalk.dim(`   ${m.content}`));
+                });
+                console.log();
+              }
+            } catch (error: any) {
+              console.log(chalk.red(`Error: ${error.message}\n`));
+            }
+            prompt();
+            return;
+          }
+
+          // Handle recall
+          if (trimmed.startsWith("recall ")) {
+            const query = trimmed.slice(7).trim();
+            if (!query) {
+              console.log(chalk.yellow("\nUsage: recall <query>\n"));
+              prompt();
+              return;
+            }
+            try {
+              const spinner = ora("Searching...").start();
+              const memories = await system!.recall(query, 5);
+              spinner.stop();
+              if (memories.length === 0) {
+                console.log(chalk.yellow("\nNo memories found\n"));
+              } else {
+                memories.forEach((m, i) => {
+                  console.log(chalk.blue(`\n${i + 1}. ${m.summary}`));
+                  console.log(chalk.dim(`   ${m.content}`));
+                });
+                console.log();
+              }
+            } catch (error: any) {
+              console.log(chalk.red(`Error: ${error.message}\n`));
+            }
+            prompt();
+            return;
+          }
+
+          // Handle remember
+          if (trimmed.startsWith("remember ")) {
+            const text = trimmed.slice(9).trim();
+            if (!text) {
+              console.log(chalk.yellow("\nUsage: remember <text>\n"));
+              prompt();
+              return;
+            }
+            try {
+              const spinner = ora("Storing memory...").start();
+              const id = await system!.remember(text);
+              spinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
+              console.log();
+            } catch (error: any) {
+              console.log(chalk.red(`Error: ${error.message}\n`));
+            }
+            prompt();
+            return;
+          }
+
+          // Default: treat as question
+          try {
+            const spinner = ora("Thinking...").start();
+            const result = await system!.chat(trimmed, session);
+            spinner.stop();
+
+            console.log(chalk.white(`\n${result.answer}`));
+
+            if (result.sources.length > 0) {
+              console.log(chalk.dim("\nSources:"));
+              result.sources.forEach((m, i) => {
+                console.log(chalk.dim(`  ${i + 1}. ${m.summary}`));
+              });
+            }
+            console.log();
+          } catch (error: any) {
+            console.log(chalk.red(`Error: ${error.message}\n`));
+          }
+
+          prompt();
+        });
+      };
+
+      // Handle Ctrl+C
+      rl.on("close", async () => {
+        if (system) {
+          await system.close();
+        }
+        process.exit(0);
+      });
+
+      prompt();
+    } catch (error: any) {
+      console.error(chalk.red(error.message));
+      if (system) {
+        await system.close();
+      }
+      process.exit(1);
     }
   });
 

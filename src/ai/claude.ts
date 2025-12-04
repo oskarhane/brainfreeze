@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ExtractedMemory, Memory } from "../core/types";
-import { EXTRACTION_PROMPT, SYNTHESIS_PROMPT } from "./prompts";
+import { EXTRACTION_PROMPT, SYNTHESIS_PROMPT, CHAT_PROMPT } from "./prompts";
 
 export class ClaudeClient {
   private client: Anthropic;
@@ -108,6 +108,67 @@ Type: ${m.type}`,
       };
     } catch (error: any) {
       throw new Error(`Claude synthesis failed: ${error.message}`);
+    }
+  }
+
+  async chatAnswer(
+    question: string,
+    memories: Memory[],
+    conversationHistory: string,
+  ): Promise<{ answer: string; usedMemoryIndices: number[] }> {
+    // Format memories for the prompt
+    const memoriesText = memories
+      .map(
+        (m, i) =>
+          `Memory ${i + 1}:
+Summary: ${m.summary}
+Content: ${m.content}
+Type: ${m.type}`,
+      )
+      .join("\n\n");
+
+    const prompt = CHAT_PROMPT.replace("{QUESTION}", question)
+      .replace("{MEMORIES}", memoriesText)
+      .replace(
+        "{HISTORY}",
+        conversationHistory || "(No previous conversation)",
+      );
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 1000,
+        temperature: 0.5,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+
+      const content = response.content[0];
+      if (content.type !== "text") {
+        throw new Error("Unexpected response type from Claude");
+      }
+
+      let jsonStr = content.text.trim();
+
+      // Remove markdown code blocks if present
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr
+          .replace(/```json?\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+      }
+
+      const result = JSON.parse(jsonStr);
+      return {
+        answer: result.answer,
+        usedMemoryIndices: result.usedMemories || [],
+      };
+    } catch (error: any) {
+      throw new Error(`Claude chat failed: ${error.message}`);
     }
   }
 }

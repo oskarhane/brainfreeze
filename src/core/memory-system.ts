@@ -2,6 +2,7 @@ import { GraphClient } from "../graph/client";
 import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 import type { Memory } from "./types";
+import type { ChatSession } from "./chat-session";
 
 export class MemorySystem {
   constructor(
@@ -122,6 +123,38 @@ export class MemorySystem {
 
   async listRecent(limit = 10): Promise<Memory[]> {
     return this.graph.getRecentMemories(limit);
+  }
+
+  async chat(
+    question: string,
+    session: ChatSession,
+    limit = 5,
+    vectorOnly = false,
+  ): Promise<{ answer: string; sources: Memory[] }> {
+    // 1. Add user message to session
+    session.addUserMessage(question);
+
+    // 2. Recall relevant memories
+    const memories = await this.recall(question, limit, !vectorOnly);
+
+    // 3. Get conversation history for context
+    const history = session.getFormattedHistory();
+
+    // 4. Get answer using chat method with conversation context
+    const result = await this.claude.chatAnswer(question, memories, history);
+
+    // 5. Filter to only memories that were actually used
+    const usedMemories = result.usedMemoryIndices
+      .map((idx) => memories[idx - 1])
+      .filter((m) => m !== undefined);
+
+    // 6. Add assistant response to session
+    session.addAssistantMessage(result.answer, usedMemories);
+
+    return {
+      answer: result.answer,
+      sources: usedMemories,
+    };
   }
 
   async close(): Promise<void> {

@@ -71,3 +71,27 @@ Return ONLY valid JSON:
   "answer": "Your synthesized answer here",
   "usedMemories": [1, 3]
 }`;
+
+export const CHAT_PROMPT = `You are a helpful assistant with access to the user's personal memories.
+
+Conversation History:
+{HISTORY}
+
+Current Question: {QUESTION}
+
+Relevant Memories:
+{MEMORIES}
+
+Instructions:
+- Answer the current question using the memories and conversation context
+- You can reference previous parts of the conversation (e.g., "as I mentioned", "the person you asked about")
+- Provide concise, natural answers using ONLY relevant information
+- If memories don't answer the question, say so and mention what you do know
+- Don't make up information not in the memories
+- Include ONLY the memory numbers you actually used
+
+Return ONLY valid JSON:
+{
+  "answer": "Your answer here",
+  "usedMemories": [1, 3]
+}`;
