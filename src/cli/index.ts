@@ -157,8 +157,6 @@ program
 
       const rl = readline.createInterface({
         input: process.stdin,
-        output: process.stdout,
-        terminal: process.stdin.isTTY,
       });
 
       const handleInput = async (input: string) => {
