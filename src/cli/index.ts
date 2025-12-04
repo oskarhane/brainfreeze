@@ -118,7 +118,7 @@ program
       );
       spinner.succeed(chalk.green("Answer:"));
 
-      console.log(chalk.white(`\n${result.answer}\n`));
+      console.log(`\n${result.answer}\n`);
 
       if (result.sources.length > 0) {
         console.log(chalk.dim("Sources:"));
@@ -260,7 +260,7 @@ program
           const result = await system!.chat(trimmed, session);
           spinner.stop();
 
-          console.log(chalk.white(`\n${result.answer}`));
+          console.log(`\n${result.answer}`);
 
           if (result.sources.length > 0) {
             console.log(chalk.dim("\nSources:"));
