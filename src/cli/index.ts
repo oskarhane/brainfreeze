@@ -164,7 +164,7 @@ program
         const trimmed = input.trim();
 
         if (!trimmed) {
-          rl.prompt();
+          process.stdout.write(chalk.green("> "));
           return;
         }
 
@@ -183,7 +183,7 @@ program
           console.log(chalk.dim("  remember <text>   - Store a new memory"));
           console.log(chalk.dim("  exit / quit       - Exit chat"));
           console.log(chalk.dim("  <anything else>   - Ask a question\n"));
-          rl.prompt();
+          process.stdout.write(chalk.green("> "));
           return;
         }
 
@@ -203,7 +203,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          rl.prompt();
+          process.stdout.write(chalk.green("> "));
           return;
         }
 
@@ -212,7 +212,7 @@ program
           const query = trimmed.slice(7).trim();
           if (!query) {
             console.log(chalk.yellow("\nUsage: recall <query>\n"));
-            rl.prompt();
+            process.stdout.write(chalk.green("> "));
             return;
           }
           try {
@@ -231,7 +231,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          rl.prompt();
+          process.stdout.write(chalk.green("> "));
           return;
         }
 
@@ -240,7 +240,7 @@ program
           const text = trimmed.slice(9).trim();
           if (!text) {
             console.log(chalk.yellow("\nUsage: remember <text>\n"));
-            rl.prompt();
+            process.stdout.write(chalk.green("> "));
             return;
           }
           try {
@@ -251,7 +251,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          rl.prompt();
+          process.stdout.write(chalk.green("> "));
           return;
         }
 
@@ -274,7 +274,7 @@ program
           console.log(chalk.red(`Error: ${error.message}\n`));
         }
 
-        rl.prompt();
+        process.stdout.write(chalk.green("> "));
       };
 
       rl.on("line", async (input) => {
@@ -290,8 +290,7 @@ program
         process.exit(0);
       });
 
-      rl.setPrompt(chalk.green("> "));
-      rl.prompt();
+      process.stdout.write(chalk.green("> "));
     } catch (error: any) {
       console.error(chalk.red(error.message));
       if (system) {
