@@ -49,3 +49,20 @@ Hypothetical questions:
 - More diverse memories deserve more questions
 
 Return ONLY JSON, no markdown formatting.`;
+
+export const SYNTHESIS_PROMPT = `Answer the user's question based on their memories.
+
+Question: {QUESTION}
+
+Relevant Memories:
+{MEMORIES}
+
+Instructions:
+- Provide a concise, natural language answer
+- Use information from the memories provided
+- If memories contain the answer, synthesize it clearly
+- If memories don't fully answer the question, say "I don't have enough information" and mention what you do know
+- Be conversational and helpful
+- Don't make up information not in the memories
+
+Return only the answer text, no extra formatting.`;

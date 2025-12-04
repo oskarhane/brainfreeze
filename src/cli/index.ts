@@ -55,10 +55,10 @@ program
   .command("recall")
   .argument("<query>", "search query")
   .option("-l, --limit <n>", "max results", "5")
-  .option("--hybrid", "use hybrid search (vector + graph)", false)
+  .option("--vector-only", "use vector-only search (no graph expansion)", false)
   .action(async (query, opts) => {
     const spinner = ora(
-      `Searching${opts.hybrid ? " (hybrid)" : ""}...`,
+      `Searching${opts.vectorOnly ? " (vector-only)" : " (hybrid)"}...`,
     ).start();
     let system: MemorySystem | null = null;
     try {
@@ -66,11 +66,11 @@ program
       const memories = await system.recall(
         query,
         parseInt(opts.limit),
-        opts.hybrid,
+        !opts.vectorOnly,
       );
       spinner.succeed(
         chalk.green(
-          `Found ${memories.length}${opts.hybrid ? " (via hybrid search)" : ""}`,
+          `Found ${memories.length}${opts.vectorOnly ? " (vector-only)" : " (hybrid)"}`,
         ),
       );
 
@@ -86,6 +86,44 @@ program
           chalk.dim(`   ${m.timestamp.toLocaleString()} | ${m.type}`),
         );
       });
+    } catch (error: any) {
+      spinner.fail(chalk.red("Failed"));
+      console.error(chalk.red(error.message));
+      process.exit(1);
+    } finally {
+      if (system) {
+        await system.close();
+      }
+    }
+  });
+
+// Answer command
+program
+  .command("answer")
+  .description("Get a synthesized answer to your question")
+  .argument("<question>", "question to answer")
+  .option("-l, --limit <n>", "max memories to consider", "5")
+  .option("--vector-only", "use vector-only search (no graph expansion)", false)
+  .action(async (question, opts) => {
+    const spinner = ora("Thinking...").start();
+    let system: MemorySystem | null = null;
+    try {
+      system = createMemorySystem();
+      const result = await system.answer(
+        question,
+        parseInt(opts.limit),
+        opts.vectorOnly,
+      );
+      spinner.succeed(chalk.green("Answer:"));
+
+      console.log(chalk.white(`\n${result.answer}\n`));
+
+      if (result.sources.length > 0) {
+        console.log(chalk.dim("Sources:"));
+        result.sources.forEach((m, i) => {
+          console.log(chalk.dim(`  ${i + 1}. ${m.summary}`));
+        });
+      }
     } catch (error: any) {
       spinner.fail(chalk.red("Failed"));
       console.error(chalk.red(error.message));

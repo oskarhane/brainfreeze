@@ -52,11 +52,11 @@ export class MemorySystem {
     return memory.id;
   }
 
-  async recall(query: string, limit = 5, useHybrid = false): Promise<Memory[]> {
+  async recall(query: string, limit = 5, useHybrid = true): Promise<Memory[]> {
     // 1. Generate query embedding
     const embedding = await this.openai.generateEmbedding(query);
 
-    // 2. Search (hybrid or simple vector)
+    // 2. Search (hybrid by default, or simple vector)
     if (useHybrid) {
       const results = await this.graph.hybridSearch(embedding, limit);
       return results.map((r) => ({ ...r, score: undefined }) as any as Memory); // Strip score for now
@@ -64,6 +64,24 @@ export class MemorySystem {
       const memories = await this.graph.searchByVector(embedding, limit);
       return memories;
     }
+  }
+
+  async answer(
+    question: string,
+    limit = 5,
+    vectorOnly = false,
+  ): Promise<{ answer: string; sources: Memory[] }> {
+    // 1. Recall relevant memories
+    const memories = await this.recall(question, limit, !vectorOnly);
+
+    // 2. Synthesize answer using Claude
+    const answer = await this.claude.synthesizeAnswer(question, memories);
+
+    // 3. Return answer with source memories
+    return {
+      answer,
+      sources: memories,
+    };
   }
 
   async exportMemories(filePath: string): Promise<number> {
