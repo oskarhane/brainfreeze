@@ -160,125 +160,130 @@ program
         output: process.stdout,
       });
 
-      const prompt = () => {
-        rl.question(chalk.green("> "), async (input) => {
-          const trimmed = input.trim();
+      const askQuestion = (): Promise<string> => {
+        return new Promise((resolve) => {
+          rl.question(chalk.green("> "), (answer) => {
+            resolve(answer);
+          });
+        });
+      };
 
-          if (!trimmed) {
-            prompt();
-            return;
-          }
+      const prompt = async () => {
+        const input = await askQuestion();
+        const trimmed = input.trim();
 
-          // Handle exit
-          if (trimmed === "exit" || trimmed === "quit") {
-            console.log(chalk.dim("\nGoodbye!"));
-            rl.close();
-            return;
-          }
+        if (!trimmed) {
+          await prompt();
+          return;
+        }
 
-          // Handle help
-          if (trimmed === "help") {
-            console.log(chalk.cyan("\nAvailable commands:"));
-            console.log(
-              chalk.dim("  list              - List recent memories"),
-            );
-            console.log(chalk.dim("  recall <query>    - Search memories"));
-            console.log(chalk.dim("  remember <text>   - Store a new memory"));
-            console.log(chalk.dim("  exit / quit       - Exit chat"));
-            console.log(chalk.dim("  <anything else>   - Ask a question\n"));
-            prompt();
-            return;
-          }
+        // Handle exit
+        if (trimmed === "exit" || trimmed === "quit") {
+          console.log(chalk.dim("\nGoodbye!"));
+          rl.close();
+          return;
+        }
 
-          // Handle list
-          if (trimmed === "list") {
-            try {
-              const memories = await system!.listRecent(10);
-              if (memories.length === 0) {
-                console.log(chalk.yellow("\nNo memories stored yet\n"));
-              } else {
-                memories.forEach((m, i) => {
-                  console.log(chalk.blue(`\n${i + 1}. ${m.summary}`));
-                  console.log(chalk.dim(`   ${m.content}`));
-                });
-                console.log();
-              }
-            } catch (error: any) {
-              console.log(chalk.red(`Error: ${error.message}\n`));
-            }
-            prompt();
-            return;
-          }
+        // Handle help
+        if (trimmed === "help") {
+          console.log(chalk.cyan("\nAvailable commands:"));
+          console.log(chalk.dim("  list              - List recent memories"));
+          console.log(chalk.dim("  recall <query>    - Search memories"));
+          console.log(chalk.dim("  remember <text>   - Store a new memory"));
+          console.log(chalk.dim("  exit / quit       - Exit chat"));
+          console.log(chalk.dim("  <anything else>   - Ask a question\n"));
+          await prompt();
+          return;
+        }
 
-          // Handle recall
-          if (trimmed.startsWith("recall ")) {
-            const query = trimmed.slice(7).trim();
-            if (!query) {
-              console.log(chalk.yellow("\nUsage: recall <query>\n"));
-              prompt();
-              return;
-            }
-            try {
-              const spinner = ora("Searching...").start();
-              const memories = await system!.recall(query, 5);
-              spinner.stop();
-              if (memories.length === 0) {
-                console.log(chalk.yellow("\nNo memories found\n"));
-              } else {
-                memories.forEach((m, i) => {
-                  console.log(chalk.blue(`\n${i + 1}. ${m.summary}`));
-                  console.log(chalk.dim(`   ${m.content}`));
-                });
-                console.log();
-              }
-            } catch (error: any) {
-              console.log(chalk.red(`Error: ${error.message}\n`));
-            }
-            prompt();
-            return;
-          }
-
-          // Handle remember
-          if (trimmed.startsWith("remember ")) {
-            const text = trimmed.slice(9).trim();
-            if (!text) {
-              console.log(chalk.yellow("\nUsage: remember <text>\n"));
-              prompt();
-              return;
-            }
-            try {
-              const spinner = ora("Storing memory...").start();
-              const id = await system!.remember(text);
-              spinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
-              console.log();
-            } catch (error: any) {
-              console.log(chalk.red(`Error: ${error.message}\n`));
-            }
-            prompt();
-            return;
-          }
-
-          // Default: treat as question
+        // Handle list
+        if (trimmed === "list") {
           try {
-            const spinner = ora("Thinking...").start();
-            const result = await system!.chat(trimmed, session);
-            spinner.stop();
-
-            console.log(chalk.white(`\n${result.answer}`));
-
-            if (result.sources.length > 0) {
-              console.log(chalk.dim("\nSources:"));
-              result.sources.forEach((m, i) => {
-                console.log(chalk.dim(`  ${i + 1}. ${m.summary}`));
+            const memories = await system!.listRecent(10);
+            if (memories.length === 0) {
+              console.log(chalk.yellow("\nNo memories stored yet\n"));
+            } else {
+              memories.forEach((m, i) => {
+                console.log(chalk.blue(`\n${i + 1}. ${m.summary}`));
+                console.log(chalk.dim(`   ${m.content}`));
               });
+              console.log();
             }
+          } catch (error: any) {
+            console.log(chalk.red(`Error: ${error.message}\n`));
+          }
+          await prompt();
+          return;
+        }
+
+        // Handle recall
+        if (trimmed.startsWith("recall ")) {
+          const query = trimmed.slice(7).trim();
+          if (!query) {
+            console.log(chalk.yellow("\nUsage: recall <query>\n"));
+            await prompt();
+            return;
+          }
+          try {
+            const spinner = ora("Searching...").start();
+            const memories = await system!.recall(query, 5);
+            spinner.stop();
+            if (memories.length === 0) {
+              console.log(chalk.yellow("\nNo memories found\n"));
+            } else {
+              memories.forEach((m, i) => {
+                console.log(chalk.blue(`\n${i + 1}. ${m.summary}`));
+                console.log(chalk.dim(`   ${m.content}`));
+              });
+              console.log();
+            }
+          } catch (error: any) {
+            console.log(chalk.red(`Error: ${error.message}\n`));
+          }
+          await prompt();
+          return;
+        }
+
+        // Handle remember
+        if (trimmed.startsWith("remember ")) {
+          const text = trimmed.slice(9).trim();
+          if (!text) {
+            console.log(chalk.yellow("\nUsage: remember <text>\n"));
+            await prompt();
+            return;
+          }
+          try {
+            const spinner = ora("Storing memory...").start();
+            const id = await system!.remember(text);
+            spinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
             console.log();
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
+          await prompt();
+          return;
+        }
 
-          prompt();
-        });
+        // Default: treat as question
+        try {
+          const spinner = ora("Thinking...").start();
+          const result = await system!.chat(trimmed, session);
+          spinner.stop();
+
+          console.log(chalk.white(`\n${result.answer}`));
+
+          if (result.sources.length > 0) {
+            console.log(chalk.dim("\nSources:"));
+            result.sources.forEach((m, i) => {
+              console.log(chalk.dim(`  ${i + 1}. ${m.summary}`));
+            });
+          }
+          console.log();
+        } catch (error: any) {
+          console.log(chalk.red(`Error: ${error.message}\n`));
+        }
+
+        await prompt();
       };
 
       // Handle Ctrl+C
