@@ -56,7 +56,7 @@ export class ClaudeClient {
   async synthesizeAnswer(
     question: string,
     memories: Memory[],
-  ): Promise<string> {
+  ): Promise<{ answer: string; usedMemoryIndices: number[] }> {
     // Format memories for the prompt
     const memoriesText = memories
       .map(
@@ -91,7 +91,21 @@ Type: ${m.type}`,
         throw new Error("Unexpected response type from Claude");
       }
 
-      return content.text.trim();
+      let jsonStr = content.text.trim();
+
+      // Remove markdown code blocks if present
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr
+          .replace(/```json?\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+      }
+
+      const result = JSON.parse(jsonStr);
+      return {
+        answer: result.answer,
+        usedMemoryIndices: result.usedMemories || [],
+      };
     } catch (error: any) {
       throw new Error(`Claude synthesis failed: ${error.message}`);
     }

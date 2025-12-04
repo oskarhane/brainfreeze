@@ -75,12 +75,16 @@ export class MemorySystem {
     const memories = await this.recall(question, limit, !vectorOnly);
 
     // 2. Synthesize answer using Claude
-    const answer = await this.claude.synthesizeAnswer(question, memories);
+    const result = await this.claude.synthesizeAnswer(question, memories);
 
-    // 3. Return answer with source memories
+    // 3. Filter to only memories that were actually used
+    const usedMemories = result.usedMemoryIndices
+      .map((idx) => memories[idx - 1]) // Convert 1-based to 0-based index
+      .filter((m) => m !== undefined);
+
     return {
-      answer,
-      sources: memories,
+      answer: result.answer,
+      sources: usedMemories,
     };
   }
 

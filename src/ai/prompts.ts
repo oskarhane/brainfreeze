@@ -58,11 +58,16 @@ Relevant Memories:
 {MEMORIES}
 
 Instructions:
-- Provide a concise, natural language answer
+- Provide a concise, natural language answer using ONLY relevant information
 - Use information from the memories provided
 - If memories contain the answer, synthesize it clearly
 - If memories don't fully answer the question, say "I don't have enough information" and mention what you do know
 - Be conversational and helpful
 - Don't make up information not in the memories
+- Include ONLY the memory numbers you actually used in your answer
 
-Return only the answer text, no extra formatting.`;
+Return ONLY valid JSON:
+{
+  "answer": "Your synthesized answer here",
+  "usedMemories": [1, 3]
+}`;
