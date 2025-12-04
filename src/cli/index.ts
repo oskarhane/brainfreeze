@@ -160,20 +160,11 @@ program
         output: process.stdout,
       });
 
-      const askQuestion = (): Promise<string> => {
-        return new Promise((resolve) => {
-          rl.question(chalk.green("> "), (answer) => {
-            resolve(answer);
-          });
-        });
-      };
-
-      const prompt = async () => {
-        const input = await askQuestion();
+      const handleInput = async (input: string) => {
         const trimmed = input.trim();
 
         if (!trimmed) {
-          await prompt();
+          rl.prompt();
           return;
         }
 
@@ -192,7 +183,7 @@ program
           console.log(chalk.dim("  remember <text>   - Store a new memory"));
           console.log(chalk.dim("  exit / quit       - Exit chat"));
           console.log(chalk.dim("  <anything else>   - Ask a question\n"));
-          await prompt();
+          rl.prompt();
           return;
         }
 
@@ -212,7 +203,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          await prompt();
+          rl.prompt();
           return;
         }
 
@@ -221,7 +212,7 @@ program
           const query = trimmed.slice(7).trim();
           if (!query) {
             console.log(chalk.yellow("\nUsage: recall <query>\n"));
-            await prompt();
+            rl.prompt();
             return;
           }
           try {
@@ -240,7 +231,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          await prompt();
+          rl.prompt();
           return;
         }
 
@@ -249,7 +240,7 @@ program
           const text = trimmed.slice(9).trim();
           if (!text) {
             console.log(chalk.yellow("\nUsage: remember <text>\n"));
-            await prompt();
+            rl.prompt();
             return;
           }
           try {
@@ -260,7 +251,7 @@ program
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
-          await prompt();
+          rl.prompt();
           return;
         }
 
@@ -283,10 +274,15 @@ program
           console.log(chalk.red(`Error: ${error.message}\n`));
         }
 
-        await prompt();
+        rl.prompt();
       };
 
-      // Handle Ctrl+C
+      rl.on("line", async (input) => {
+        rl.pause();
+        await handleInput(input);
+        rl.resume();
+      });
+
       rl.on("close", async () => {
         if (system) {
           await system.close();
@@ -294,7 +290,8 @@ program
         process.exit(0);
       });
 
-      prompt();
+      rl.setPrompt(chalk.green("> "));
+      rl.prompt();
     } catch (error: any) {
       console.error(chalk.red(error.message));
       if (system) {
