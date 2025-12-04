@@ -20,7 +20,8 @@ Return ONLY valid JSON:
     "location": "location if mentioned",
     "activity": "what user was doing",
     "sentiment": "positive|neutral|negative"
-  }
+  },
+  "hypotheticalQuestions": ["Question a user might ask to find this memory"]
 }
 
 Types:
@@ -38,4 +39,13 @@ Relationship types:
 - PART_OF: entity is part of larger entity
 - MENTIONED_WITH: entities co-occur (default if no explicit relationship)
 
-Extract ALL people, places, orgs, concepts AND their relationships. Return ONLY JSON, no markdown formatting.`;
+Extract ALL people, places, orgs, concepts AND their relationships.
+
+Hypothetical questions:
+- Generate 1-5 natural questions a user might ask to retrieve this memory
+- Focus on CONTENT: who, what, where, why (NOT when/temporal aspects)
+- Avoid time-based questions like "When did I...", "What time...", etc.
+- Examples: "What did I discuss with X?", "Where did I eat?", "Who talked about Y?"
+- More diverse memories deserve more questions
+
+Return ONLY JSON, no markdown formatting.`;

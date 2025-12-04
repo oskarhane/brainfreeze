@@ -8,7 +8,7 @@ export interface Memory {
   metadata: MemoryMetadata;
 }
 
-export type MemoryType = 'episodic' | 'semantic' | 'todo' | 'reflection';
+export type MemoryType = "episodic" | "semantic" | "todo" | "reflection";
 
 export interface Entity {
   id: string;
@@ -17,13 +17,13 @@ export interface Entity {
   context?: string;
 }
 
-export type EntityType = 'person' | 'place' | 'concept' | 'organization';
+export type EntityType = "person" | "place" | "concept" | "organization";
 
 export interface MemoryMetadata {
   location?: string;
   activity?: string;
-  sentiment?: 'positive' | 'neutral' | 'negative';
-  timeOfDay?: 'morning' | 'afternoon' | 'evening';
+  sentiment?: "positive" | "neutral" | "negative";
+  timeOfDay?: "morning" | "afternoon" | "evening";
 }
 
 export interface Relationship {
@@ -34,13 +34,13 @@ export interface Relationship {
 }
 
 export type RelationshipType =
-  | 'KNOWS'
-  | 'WORKS_AT'
-  | 'LIVES_IN'
-  | 'VISITED'
-  | 'RELATED_TO'
-  | 'PART_OF'
-  | 'MENTIONED_WITH';
+  | "KNOWS"
+  | "WORKS_AT"
+  | "LIVES_IN"
+  | "VISITED"
+  | "RELATED_TO"
+  | "PART_OF"
+  | "MENTIONED_WITH";
 
 export interface ExtractedMemory {
   summary: string;
@@ -53,9 +53,10 @@ export interface ExtractedMemory {
   relationships: Relationship[];
   temporal: {
     references: string[];
-    timeOfDay?: 'morning' | 'afternoon' | 'evening';
+    timeOfDay?: "morning" | "afternoon" | "evening";
   };
   metadata: MemoryMetadata;
+  hypotheticalQuestions: string[];
 }
 
 export interface RecallQuery {

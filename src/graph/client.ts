@@ -1,11 +1,16 @@
-import neo4j from 'neo4j-driver';
-import type { Memory, Entity, Relationship } from '../core/types';
+import neo4j from "neo4j-driver";
+import type { Memory, Entity, Relationship } from "../core/types";
 
 export class GraphClient {
   private driver: neo4j.Driver;
   private database: string;
 
-  constructor(uri: string, user: string, password: string, database: string = 'neo4j') {
+  constructor(
+    uri: string,
+    user: string,
+    password: string,
+    database: string = "neo4j",
+  ) {
     this.driver = neo4j.driver(uri, neo4j.auth.basic(user, password));
     this.database = database;
   }
@@ -43,7 +48,7 @@ export class GraphClient {
         FOR (e:Entity) ON (e.normalizedName)
       `);
 
-      // Create vector index
+      // Create vector index for memories
       try {
         await session.run(`
           CREATE VECTOR INDEX memory_embedding IF NOT EXISTS
@@ -56,9 +61,38 @@ export class GraphClient {
           }
         `);
       } catch (error: any) {
-        // Vector index might already exist or not supported
-        if (!error.message.includes('already exists')) {
-          console.warn('Warning: Vector index creation skipped:', error.message);
+        if (!error.message.includes("already exists")) {
+          console.warn(
+            "Warning: Vector index creation skipped:",
+            error.message,
+          );
+        }
+      }
+
+      // Create constraint for hypothetical questions
+      await session.run(`
+        CREATE CONSTRAINT hypothetical_question_id IF NOT EXISTS
+        FOR (q:HypotheticalQuestion) REQUIRE q.id IS UNIQUE
+      `);
+
+      // Create vector index for hypothetical questions
+      try {
+        await session.run(`
+          CREATE VECTOR INDEX hypothetical_question_embedding IF NOT EXISTS
+          FOR (q:HypotheticalQuestion) ON (q.embedding)
+          OPTIONS {
+            indexConfig: {
+              \`vector.dimensions\`: 1536,
+              \`vector.similarity_function\`: 'cosine'
+            }
+          }
+        `);
+      } catch (error: any) {
+        if (!error.message.includes("already exists")) {
+          console.warn(
+            "Warning: Hypothetical question vector index creation skipped:",
+            error.message,
+          );
         }
       }
     } finally {
@@ -69,7 +103,7 @@ export class GraphClient {
   async storeMemory(
     memory: Memory,
     entities: Array<{ name: string; type: string; context?: string }>,
-    relationships: Relationship[] = []
+    relationships: Relationship[] = [],
   ): Promise<void> {
     const session = this.driver.session({ database: this.database });
     try {
@@ -91,7 +125,7 @@ export class GraphClient {
             type: memory.type,
             timestamp: memory.timestamp.toISOString(),
             embedding: memory.embedding,
-          }
+          },
         );
 
         // Create entities and memory-entity relationships
@@ -109,7 +143,7 @@ export class GraphClient {
               name: entity.name,
               type: entity.type,
               memoryId: memory.id,
-            }
+            },
           );
         }
 
@@ -127,8 +161,38 @@ export class GraphClient {
             {
               fromNormalized,
               toNormalized,
-              context: rel.context || '',
-            }
+              context: rel.context || "",
+            },
+          );
+        }
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async storeHypotheticalQuestions(
+    memoryId: string,
+    questions: Array<{ question: string; embedding: number[] }>,
+  ): Promise<void> {
+    const session = this.driver.session({ database: this.database });
+    try {
+      await session.executeWrite(async (tx) => {
+        for (const q of questions) {
+          await tx.run(
+            `CREATE (hq:HypotheticalQuestion {
+              id: randomUUID(),
+              question: $question,
+              embedding: $embedding
+            })
+            WITH hq
+            MATCH (m:Memory {id: $memoryId})
+            CREATE (hq)-[:FOR_MEMORY]->(m)`,
+            {
+              question: q.question,
+              embedding: q.embedding,
+              memoryId,
+            },
           );
         }
       });
@@ -140,25 +204,67 @@ export class GraphClient {
   async searchByVector(embedding: number[], limit: number): Promise<Memory[]> {
     const session = this.driver.session({ database: this.database });
     try {
-      const result = await session.run(
-        `CALL db.index.vector.queryNodes('memory_embedding', $limit, $embedding)
-         YIELD node, score
-         RETURN node, score
-         ORDER BY score DESC`,
-        { embedding, limit: neo4j.int(limit) }
-      );
+      const memoryResults = new Map<
+        string,
+        { memory: Memory; score: number }
+      >();
 
-      return result.records.map((record: any) => {
-        const node = record.get('node');
-        return this.nodeToMemory(node);
-      });
-    } catch (error: any) {
-      // Fallback to text search if vector index not available
-      if (error.message.includes('no such index')) {
-        console.warn('Vector index not found, using recent memories');
+      // Search memory embeddings
+      try {
+        const memoryResult = await session.run(
+          `CALL db.index.vector.queryNodes('memory_embedding', $limit, $embedding)
+           YIELD node, score
+           RETURN node, score
+           ORDER BY score DESC`,
+          { embedding, limit: neo4j.int(limit) },
+        );
+
+        for (const record of memoryResult.records) {
+          const memory = this.nodeToMemory(record.get("node"));
+          const score = record.get("score");
+          memoryResults.set(memory.id, { memory, score });
+        }
+      } catch (error: any) {
+        if (!error.message.includes("no such index")) {
+          throw error;
+        }
+      }
+
+      // Search hypothetical question embeddings
+      try {
+        const questionResult = await session.run(
+          `CALL db.index.vector.queryNodes('hypothetical_question_embedding', $limit, $embedding)
+           YIELD node, score
+           MATCH (node)-[:FOR_MEMORY]->(m:Memory)
+           RETURN m, score
+           ORDER BY score DESC`,
+          { embedding, limit: neo4j.int(limit) },
+        );
+
+        for (const record of questionResult.records) {
+          const memory = this.nodeToMemory(record.get("m"));
+          const score = record.get("score");
+          const existing = memoryResults.get(memory.id);
+          if (!existing || existing.score < score) {
+            memoryResults.set(memory.id, { memory, score });
+          }
+        }
+      } catch (error: any) {
+        if (!error.message.includes("no such index")) {
+          throw error;
+        }
+      }
+
+      // If no results from vector search, fall back to recent
+      if (memoryResults.size === 0) {
         return this.getRecentMemories(limit);
       }
-      throw error;
+
+      // Sort by score and return top results
+      return Array.from(memoryResults.values())
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map((item) => item.memory);
     } finally {
       await session.close();
     }
@@ -172,11 +278,11 @@ export class GraphClient {
          RETURN m
          ORDER BY m.timestamp DESC
          LIMIT $limit`,
-        { limit: neo4j.int(limit) }
+        { limit: neo4j.int(limit) },
       );
 
       return result.records.map((record: any) => {
-        const node = record.get('m');
+        const node = record.get("m");
         return this.nodeToMemory(node);
       });
     } finally {
@@ -191,11 +297,11 @@ export class GraphClient {
         `MATCH (m:Memory)-[:MENTIONS]->(e:Entity)
          WHERE m.id IN $memoryIds
          RETURN DISTINCT e`,
-        { memoryIds }
+        { memoryIds },
       );
 
       return result.records.map((record: any) => {
-        const node = record.get('e');
+        const node = record.get("e");
         return {
           id: node.properties.id,
           name: node.properties.name,
@@ -231,11 +337,11 @@ export class GraphClient {
       const result = await session.run(
         `MATCH (m:Memory)
          RETURN m
-         ORDER BY m.timestamp ASC`
+         ORDER BY m.timestamp ASC`,
       );
 
       return result.records.map((record: any) => {
-        const node = record.get('m');
+        const node = record.get("m");
         return this.nodeToMemory(node);
       });
     } finally {
@@ -243,18 +349,24 @@ export class GraphClient {
     }
   }
 
-  async hybridSearch(embedding: number[], limit: number): Promise<Array<Memory & { score: number }>> {
+  async hybridSearch(
+    embedding: number[],
+    limit: number,
+  ): Promise<Array<Memory & { score: number }>> {
     const session = this.driver.session({ database: this.database });
     try {
       // Step 1: Vector search for similar memories
       const vectorResults = await this.searchByVector(embedding, limit);
 
       // Step 2: For each memory, get connected entities and their other memories
-      const expandedResults = new Map<string, { memory: Memory; score: number }>();
+      const expandedResults = new Map<
+        string,
+        { memory: Memory; score: number }
+      >();
 
       for (let i = 0; i < vectorResults.length; i++) {
         const memory = vectorResults[i];
-        const vectorScore = 1.0 - (i / vectorResults.length); // Higher rank = higher score
+        const vectorScore = 1.0 - i / vectorResults.length; // Higher rank = higher score
 
         // Add original memory
         expandedResults.set(memory.id, { memory, score: vectorScore });
@@ -267,12 +379,12 @@ export class GraphClient {
            RETURN DISTINCT related, count(e) as sharedEntities
            ORDER BY sharedEntities DESC
            LIMIT 5`,
-          { memoryId: memory.id }
+          { memoryId: memory.id },
         );
 
         for (const record of result.records) {
-          const relatedMemory = this.nodeToMemory(record.get('related'));
-          const sharedCount = record.get('sharedEntities').toNumber();
+          const relatedMemory = this.nodeToMemory(record.get("related"));
+          const sharedCount = record.get("sharedEntities").toNumber();
           const graphScore = (sharedCount / 10) * 0.5; // Max 0.5 score from graph connections
 
           if (!expandedResults.has(relatedMemory.id)) {
@@ -288,7 +400,7 @@ export class GraphClient {
       const scored = Array.from(expandedResults.values())
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
-        .map(item => ({ ...item.memory, score: item.score }));
+        .map((item) => ({ ...item.memory, score: item.score }));
 
       return scored;
     } finally {
