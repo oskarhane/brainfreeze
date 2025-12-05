@@ -38,6 +38,14 @@ Relationship types:
 - RELATED_TO: general connection between concepts
 - PART_OF: entity is part of larger entity
 - MENTIONED_WITH: entities co-occur (default if no explicit relationship)
+- LIKES: person likes something
+- DISLIKES: person dislikes something
+- PREFERS: person prefers something
+
+IMPORTANT: For first-person statements (I, me, my), use "User" as the entity name.
+- "I hate oatmilk" → entity: User, relationship: User -[DISLIKES]-> oatmilk
+- "I work at Google" → entity: User, relationship: User -[WORKS_AT]-> Google
+- "My favorite coffee shop is Blue Bottle" → User -[PREFERS]-> Blue Bottle
 
 Extract ALL people, places, orgs, concepts AND their relationships.
 
