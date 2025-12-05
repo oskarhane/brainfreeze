@@ -5,7 +5,9 @@ import {
   SYNTHESIS_PROMPT,
   CHAT_PROMPT,
   RESOLVE_REFERENCES_PROMPT,
+  ENTITY_DISAMBIGUATION_PROMPT,
 } from "./prompts";
+import type { Entity } from "../core/types";
 
 export class ClaudeClient {
   private client: Anthropic;
@@ -174,6 +176,63 @@ Type: ${m.type}`,
       };
     } catch (error: any) {
       throw new Error(`Claude chat failed: ${error.message}`);
+    }
+  }
+
+  async disambiguateEntity(
+    entityName: string,
+    entityType: string,
+    context: string,
+    candidates: Array<{ entity: Entity; memoryCount: number }>,
+  ): Promise<{ selectedIndex: number; confidence: string; reasoning: string }> {
+    const candidatesText = candidates
+      .map(
+        (c, i) =>
+          `${i + 1}. ${c.entity.name} (type: ${c.entity.type}, memories: ${c.memoryCount}${c.entity.aliases?.length ? `, aliases: ${c.entity.aliases.join(", ")}` : ""})`,
+      )
+      .join("\n");
+
+    const prompt = ENTITY_DISAMBIGUATION_PROMPT.replace(
+      "{ENTITY_NAME}",
+      entityName,
+    )
+      .replace("{ENTITY_TYPE}", entityType)
+      .replace("{CONTEXT}", context)
+      .replace("{CANDIDATES}", candidatesText);
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 300,
+        temperature: 0.3,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+
+      const content = response.content[0];
+      if (content.type !== "text") {
+        return {
+          selectedIndex: -1,
+          confidence: "low",
+          reasoning: "No response",
+        };
+      }
+
+      let jsonStr = content.text.trim();
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr
+          .replace(/```json?\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+      }
+
+      return JSON.parse(jsonStr);
+    } catch (error: any) {
+      return { selectedIndex: -1, confidence: "low", reasoning: error.message };
     }
   }
 

@@ -116,3 +116,25 @@ Text: "He loves coffee"
 Output: "John loves coffee"
 
 Return ONLY the expanded text.`;
+
+export const ENTITY_DISAMBIGUATION_PROMPT = `Determine which existing entity a new mention refers to, or if it's a new entity.
+
+New entity mention from text: {ENTITY_NAME} (type: {ENTITY_TYPE})
+Context from the memory: {CONTEXT}
+
+Existing entities that might match:
+{CANDIDATES}
+
+Instructions:
+- Analyze if the new mention refers to one of the existing entities
+- Consider name similarity, type match, and context clues
+- If confident it's the same entity, return its index (1-based)
+- If it's clearly a new/different entity, return 0
+- If ambiguous and user should decide, return -1
+
+Return ONLY valid JSON:
+{
+  "selectedIndex": 1,
+  "confidence": "high|medium|low",
+  "reasoning": "Brief explanation"
+}`;

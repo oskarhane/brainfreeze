@@ -48,6 +48,21 @@ export class GraphClient {
         FOR (e:Entity) ON (e.normalizedName)
       `);
 
+      // Fulltext index for fuzzy entity name search
+      try {
+        await session.run(`
+          CREATE FULLTEXT INDEX entity_name_fulltext IF NOT EXISTS
+          FOR (e:Entity) ON EACH [e.name, e.aliases]
+        `);
+      } catch (error: any) {
+        if (!error.message.includes("already exists")) {
+          console.warn(
+            "Warning: Fulltext index creation skipped:",
+            error.message,
+          );
+        }
+      }
+
       // Create vector index for memories
       try {
         await session.run(`
@@ -102,7 +117,12 @@ export class GraphClient {
 
   async storeMemory(
     memory: Memory,
-    entities: Array<{ name: string; type: string; context?: string }>,
+    entities: Array<{
+      name: string;
+      type: string;
+      context?: string;
+      resolvedId?: string;
+    }>,
     relationships: Relationship[] = [],
   ): Promise<void> {
     const session = this.driver.session({ database: this.database });
@@ -130,21 +150,37 @@ export class GraphClient {
 
         // Create entities and memory-entity relationships
         for (const entity of entities) {
-          const normalizedName = this.normalizeEntityName(entity.name);
-          await tx.run(
-            `MERGE (e:Entity {normalizedName: $normalizedName, type: $type})
-             ON CREATE SET e.id = randomUUID(), e.name = $name, e.firstSeen = datetime()
-             ON MATCH SET e.name = $name, e.lastSeen = datetime()
-             WITH e
-             MATCH (m:Memory {id: $memoryId})
-             CREATE (m)-[:MENTIONS]->(e)`,
-            {
-              normalizedName,
-              name: entity.name,
-              type: entity.type,
-              memoryId: memory.id,
-            },
-          );
+          if (entity.resolvedId) {
+            // Link to existing entity by ID
+            await tx.run(
+              `MATCH (e:Entity {id: $entityId})
+               SET e.lastSeen = datetime()
+               WITH e
+               MATCH (m:Memory {id: $memoryId})
+               CREATE (m)-[:MENTIONS]->(e)`,
+              {
+                entityId: entity.resolvedId,
+                memoryId: memory.id,
+              },
+            );
+          } else {
+            // Create or merge entity by normalized name
+            const normalizedName = this.normalizeEntityName(entity.name);
+            await tx.run(
+              `MERGE (e:Entity {normalizedName: $normalizedName, type: $type})
+               ON CREATE SET e.id = randomUUID(), e.name = $name, e.firstSeen = datetime()
+               ON MATCH SET e.name = $name, e.lastSeen = datetime()
+               WITH e
+               MATCH (m:Memory {id: $memoryId})
+               CREATE (m)-[:MENTIONS]->(e)`,
+              {
+                normalizedName,
+                name: entity.name,
+                type: entity.type,
+                memoryId: memory.id,
+              },
+            );
+          }
         }
 
         // Create entity-entity relationships
@@ -403,6 +439,191 @@ export class GraphClient {
         .map((item) => ({ ...item.memory, score: item.score }));
 
       return scored;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async findSimilarEntities(
+    name: string,
+    type?: string,
+  ): Promise<Array<{ entity: Entity; score: number; memoryCount: number }>> {
+    const session = this.driver.session({ database: this.database });
+    try {
+      const normalizedName = this.normalizeEntityName(name);
+      const results = new Map<
+        string,
+        { entity: Entity; score: number; memoryCount: number }
+      >();
+
+      // First try exact normalized match
+      const exactResult = await session.run(
+        `MATCH (e:Entity)
+         WHERE e.normalizedName = $normalizedName
+         ${type ? "AND e.type = $type" : ""}
+         OPTIONAL MATCH (m:Memory)-[:MENTIONS]->(e)
+         RETURN e, count(m) as memoryCount`,
+        { normalizedName, type },
+      );
+
+      for (const record of exactResult.records) {
+        const node = record.get("e");
+        const id = node.properties.id;
+        results.set(id, {
+          entity: {
+            id,
+            name: node.properties.name,
+            type: node.properties.type,
+            aliases: node.properties.aliases || [],
+          },
+          score: 1.0,
+          memoryCount: record.get("memoryCount").toNumber(),
+        });
+      }
+
+      // Also try fuzzy fulltext search to find similar entities
+      try {
+        // Search for each word in the name separately for better matching
+        const words = name.split(/\s+/);
+        for (const word of words) {
+          if (word.length < 2) continue;
+
+          const fuzzyResult = await session.run(
+            `CALL db.index.fulltext.queryNodes('entity_name_fulltext', $searchTerm)
+             YIELD node, score
+             WHERE score > 0.3 ${type ? "AND node.type = $type" : ""}
+             OPTIONAL MATCH (m:Memory)-[:MENTIONS]->(node)
+             RETURN node, score, count(m) as memoryCount
+             ORDER BY score DESC
+             LIMIT 10`,
+            { searchTerm: `${word}~`, type },
+          );
+
+          for (const record of fuzzyResult.records) {
+            const node = record.get("node");
+            const id = node.properties.id;
+            const score = record.get("score");
+
+            // Only add if not already present or if this score is higher
+            const existing = results.get(id);
+            if (!existing || existing.score < score) {
+              results.set(id, {
+                entity: {
+                  id,
+                  name: node.properties.name,
+                  type: node.properties.type,
+                  aliases: node.properties.aliases || [],
+                },
+                score: existing?.score === 1.0 ? 1.0 : score, // Keep exact match score
+                memoryCount: record.get("memoryCount").toNumber(),
+              });
+            }
+          }
+        }
+      } catch (error: any) {
+        // Fulltext index might not exist yet
+        if (!error.message.includes("no such index")) {
+          throw error;
+        }
+      }
+
+      // Sort by score descending
+      return Array.from(results.values()).sort((a, b) => b.score - a.score);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async mergeEntities(keepId: string, removeId: string): Promise<void> {
+    const session = this.driver.session({ database: this.database });
+    try {
+      await session.executeWrite(async (tx) => {
+        // Get the entity being removed to capture its name as alias
+        const removeResult = await tx.run(
+          `MATCH (remove:Entity {id: $removeId})
+           RETURN remove.name as name, remove.aliases as aliases`,
+          { removeId },
+        );
+
+        if (removeResult.records.length === 0) {
+          throw new Error(`Entity ${removeId} not found`);
+        }
+
+        const removeName = removeResult.records[0].get("name");
+        const removeAliases = removeResult.records[0].get("aliases") || [];
+
+        // Move all MENTIONS relationships to keep entity
+        await tx.run(
+          `MATCH (m:Memory)-[r:MENTIONS]->(remove:Entity {id: $removeId})
+           MATCH (keep:Entity {id: $keepId})
+           MERGE (m)-[:MENTIONS]->(keep)
+           DELETE r`,
+          { keepId, removeId },
+        );
+
+        // Move all other relationships (non-MENTIONS)
+        await tx.run(
+          `MATCH (remove:Entity {id: $removeId})-[r]->(other)
+           WHERE type(r) <> 'MENTIONS'
+           MATCH (keep:Entity {id: $keepId})
+           WITH keep, other, type(r) as relType, properties(r) as relProps, r
+           CALL apoc.merge.relationship(keep, relType, {}, relProps, other) YIELD rel
+           DELETE r`,
+          { keepId, removeId },
+        );
+
+        await tx.run(
+          `MATCH (other)-[r]->(remove:Entity {id: $removeId})
+           MATCH (keep:Entity {id: $keepId})
+           WITH keep, other, type(r) as relType, properties(r) as relProps, r
+           CALL apoc.merge.relationship(other, relType, {}, relProps, keep) YIELD rel
+           DELETE r`,
+          { keepId, removeId },
+        );
+
+        // Add removed entity name and aliases to keep entity
+        await tx.run(
+          `MATCH (keep:Entity {id: $keepId})
+           SET keep.aliases = coalesce(keep.aliases, []) + $newAliases`,
+          { keepId, newAliases: [removeName, ...removeAliases] },
+        );
+
+        // Delete the removed entity
+        await tx.run(
+          `MATCH (remove:Entity {id: $removeId})
+           DELETE remove`,
+          { removeId },
+        );
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllEntities(): Promise<
+    Array<{ entity: Entity; memoryCount: number }>
+  > {
+    const session = this.driver.session({ database: this.database });
+    try {
+      const result = await session.run(
+        `MATCH (e:Entity)
+         OPTIONAL MATCH (m:Memory)-[:MENTIONS]->(e)
+         RETURN e, count(m) as memoryCount
+         ORDER BY memoryCount DESC`,
+      );
+
+      return result.records.map((record: any) => {
+        const node = record.get("e");
+        return {
+          entity: {
+            id: node.properties.id,
+            name: node.properties.name,
+            type: node.properties.type,
+            aliases: node.properties.aliases || [],
+          },
+          memoryCount: record.get("memoryCount").toNumber(),
+        };
+      });
     } finally {
       await session.close();
     }

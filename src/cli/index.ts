@@ -9,8 +9,131 @@ import { GraphClient } from "../graph/client";
 import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 import { ChatSession } from "../core/chat-session";
+import { EntityResolver } from "../core/entity-resolver";
+import type { EntityDisambiguation } from "../core/types";
 
 const program = new Command();
+
+async function promptDisambiguationChat(
+  disambiguation: EntityDisambiguation,
+  rl: readline.Interface,
+): Promise<string | null> {
+  // If auto-resolved with high confidence, use that
+  if (disambiguation.autoResolved) {
+    const resolved =
+      disambiguation.candidates[disambiguation.autoResolved.index];
+    if (resolved) {
+      console.log(
+        chalk.dim(
+          `  Auto-resolved "${disambiguation.extractedEntity.name}" → ${resolved.entity.name} (${disambiguation.autoResolved.reasoning})`,
+        ),
+      );
+      return resolved.entity.id;
+    }
+  }
+
+  // Otherwise prompt user
+  console.log(
+    chalk.yellow(
+      `\nMultiple matches for "${disambiguation.extractedEntity.name}":`,
+    ),
+  );
+  disambiguation.candidates.forEach((c, i) => {
+    const aliases = c.entity.aliases?.length
+      ? ` (aliases: ${c.entity.aliases.join(", ")})`
+      : "";
+    console.log(
+      chalk.dim(
+        `  ${i + 1}. ${c.entity.name} - ${c.entity.type}${aliases} [${c.memoryCount} memories]`,
+      ),
+    );
+  });
+  console.log(
+    chalk.dim(`  ${disambiguation.candidates.length + 1}. Create new entity`),
+  );
+
+  return new Promise((resolve) => {
+    rl.question(chalk.green("Which one? "), (answer) => {
+      const choice = parseInt(answer.trim());
+      if (
+        isNaN(choice) ||
+        choice < 1 ||
+        choice > disambiguation.candidates.length + 1
+      ) {
+        console.log(chalk.yellow("Invalid choice, creating new entity"));
+        resolve(null);
+      } else if (choice === disambiguation.candidates.length + 1) {
+        resolve(null); // Create new
+      } else {
+        const selected = disambiguation.candidates[choice - 1];
+        resolve(selected?.entity.id ?? null);
+      }
+    });
+  });
+}
+
+async function promptDisambiguation(
+  disambiguation: EntityDisambiguation,
+): Promise<string | null> {
+  // If auto-resolved with high confidence, use that
+  if (disambiguation.autoResolved) {
+    const resolved =
+      disambiguation.candidates[disambiguation.autoResolved.index];
+    if (resolved) {
+      console.log(
+        chalk.dim(
+          `  Auto-resolved "${disambiguation.extractedEntity.name}" → ${resolved.entity.name} (${disambiguation.autoResolved.reasoning})`,
+        ),
+      );
+      return resolved.entity.id;
+    }
+  }
+
+  // Otherwise prompt user
+  console.log(
+    chalk.yellow(
+      `\nMultiple matches for "${disambiguation.extractedEntity.name}":`,
+    ),
+  );
+  disambiguation.candidates.forEach((c, i) => {
+    const aliases = c.entity.aliases?.length
+      ? ` (aliases: ${c.entity.aliases.join(", ")})`
+      : "";
+    console.log(
+      chalk.dim(
+        `  ${i + 1}. ${c.entity.name} - ${c.entity.type}${aliases} [${c.memoryCount} memories]`,
+      ),
+    );
+  });
+  console.log(
+    chalk.dim(`  ${disambiguation.candidates.length + 1}. Create new entity`),
+  );
+
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    rl.question(chalk.green("Which one? "), (answer) => {
+      rl.close();
+      const choice = parseInt(answer.trim());
+      if (
+        isNaN(choice) ||
+        choice < 1 ||
+        choice > disambiguation.candidates.length + 1
+      ) {
+        console.log(chalk.yellow("Invalid choice, creating new entity"));
+        resolve(null);
+      } else if (choice === disambiguation.candidates.length + 1) {
+        resolve(null); // Create new
+      } else {
+        const selected = disambiguation.candidates[choice - 1];
+        resolve(selected?.entity.id ?? null);
+      }
+    });
+  });
+}
 
 function createMemorySystem() {
   const config = loadConfig();
@@ -35,12 +158,35 @@ program
 
 // Default command: store memory
 program.argument("<text>", "text to remember").action(async (text) => {
-  const spinner = ora("Storing memory...").start();
+  const spinner = ora("Processing...").start();
   let system: MemorySystem | null = null;
   try {
     system = createMemorySystem();
-    const id = await system.remember(text);
-    spinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
+
+    // Prepare memory and check for disambiguation needs
+    const { extracted, embedding, disambiguations } =
+      await system.prepareMemory(text);
+
+    spinner.stop();
+
+    // Handle any disambiguations
+    const entityResolutions = new Map<string, string>();
+    for (const disambiguation of disambiguations) {
+      const resolvedId = await promptDisambiguation(disambiguation);
+      if (resolvedId) {
+        entityResolutions.set(disambiguation.extractedEntity.name, resolvedId);
+      }
+    }
+
+    // Store the memory
+    const storeSpinner = ora("Storing...").start();
+    const id = await system.storeMemory(
+      text,
+      extracted,
+      embedding,
+      entityResolutions,
+    );
+    storeSpinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
   } catch (error: any) {
     spinner.fail(chalk.red("Failed"));
     console.error(chalk.red(error.message));
@@ -250,9 +396,36 @@ program
             return;
           }
           try {
-            const spinner = createSpinner("Storing memory...").start();
-            const id = await system!.rememberWithContext(text, session);
-            spinner.succeed(chalk.green(`Stored: ${id.substring(0, 8)}...`));
+            const spinner = createSpinner("Processing...").start();
+            const { expandedText, extracted, embedding, disambiguations } =
+              await system!.prepareMemoryWithContext(text, session);
+            spinner.stop();
+
+            // Handle disambiguations
+            const entityResolutions = new Map<string, string>();
+            for (const disambiguation of disambiguations) {
+              const resolvedId = await promptDisambiguationChat(
+                disambiguation,
+                rl,
+              );
+              if (resolvedId) {
+                entityResolutions.set(
+                  disambiguation.extractedEntity.name,
+                  resolvedId,
+                );
+              }
+            }
+
+            const storeSpinner = createSpinner("Storing...").start();
+            const id = await system!.storeMemory(
+              expandedText,
+              extracted,
+              embedding,
+              entityResolutions,
+            );
+            storeSpinner.succeed(
+              chalk.green(`Stored: ${id.substring(0, 8)}...`),
+            );
             console.log();
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
@@ -384,6 +557,109 @@ program
     } finally {
       if (system) {
         await system.close();
+      }
+    }
+  });
+
+// Resolve command - find and merge duplicate entities
+program
+  .command("resolve")
+  .description("Find and merge duplicate entities")
+  .action(async () => {
+    const spinner = ora("Scanning for duplicates...").start();
+    let graph: GraphClient | null = null;
+    let claude: ClaudeClient | null = null;
+    try {
+      const config = loadConfig();
+      graph = new GraphClient(
+        config.neo4j.uri,
+        config.neo4j.user,
+        config.neo4j.password,
+        config.neo4j.database,
+      );
+      claude = new ClaudeClient(
+        config.anthropic.apiKey,
+        config.anthropic.model,
+      );
+
+      const resolver = new EntityResolver(graph, claude);
+      const candidates = await resolver.findMergeCandidates();
+
+      spinner.stop();
+
+      if (candidates.length === 0) {
+        console.log(chalk.green("No duplicate entities found"));
+        return;
+      }
+
+      console.log(
+        chalk.yellow(`\nFound ${candidates.length} potential duplicates:\n`),
+      );
+
+      for (const candidate of candidates) {
+        const e1 = candidate.entities[0];
+        const e2 = candidate.entities[1];
+
+        if (!e1 || !e2) continue;
+
+        console.log(chalk.blue(`"${e1.entity.name}" ↔ "${e2.entity.name}"`));
+        console.log(chalk.dim(`  Type: ${e1.entity.type}`));
+        console.log(
+          chalk.dim(`  Memories: ${e1.memoryCount} vs ${e2.memoryCount}`),
+        );
+        console.log(chalk.dim(`  Confidence: ${candidate.confidence}`));
+        console.log(chalk.dim(`  Reason: ${candidate.reasoning}`));
+
+        const keepEntity = candidate.entities[candidate.suggestedKeep];
+        const removeEntity =
+          candidate.entities[candidate.suggestedKeep === 0 ? 1 : 0];
+
+        if (!keepEntity || !removeEntity) continue;
+
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(
+            chalk.green(
+              `  Merge into "${keepEntity.entity.name}"? (y/n/s to skip all): `,
+            ),
+            resolve,
+          );
+        });
+        rl.close();
+
+        if (answer.toLowerCase() === "s") {
+          console.log(chalk.dim("  Skipping remaining...\n"));
+          break;
+        }
+
+        if (answer.toLowerCase() === "y") {
+          const mergeSpinner = ora("Merging...").start();
+          await resolver.mergeEntities(
+            keepEntity.entity.id,
+            removeEntity.entity.id,
+          );
+          mergeSpinner.succeed(
+            chalk.green(
+              `  Merged "${removeEntity.entity.name}" into "${keepEntity.entity.name}"`,
+            ),
+          );
+        } else {
+          console.log(chalk.dim("  Skipped\n"));
+        }
+      }
+
+      console.log(chalk.green("\nDone!"));
+    } catch (error: any) {
+      spinner.fail(chalk.red("Failed"));
+      console.error(chalk.red(error.message));
+      process.exit(1);
+    } finally {
+      if (graph) {
+        await graph.close();
       }
     }
   });

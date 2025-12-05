@@ -15,6 +15,7 @@ export interface Entity {
   name: string;
   type: EntityType;
   context?: string;
+  aliases?: string[];
 }
 
 export type EntityType = "person" | "place" | "concept" | "organization";
@@ -74,6 +75,12 @@ export interface RecallResult {
   memories: Memory[];
   entities: Entity[];
   relationshipCount: number;
+}
+
+export interface EntityDisambiguation {
+  extractedEntity: { name: string; type: string; context?: string };
+  candidates: Array<{ entity: Entity; memoryCount: number }>;
+  autoResolved?: { index: number; reasoning: string };
 }
 
 export interface Config {

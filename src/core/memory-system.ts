@@ -1,7 +1,12 @@
 import { GraphClient } from "../graph/client";
 import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
-import type { Memory } from "./types";
+import type {
+  Memory,
+  Entity,
+  ExtractedMemory,
+  EntityDisambiguation,
+} from "./types";
 import type { ChatSession } from "./chat-session";
 
 export class MemorySystem {
@@ -125,6 +130,114 @@ export class MemorySystem {
     return this.graph.getRecentMemories(limit);
   }
 
+  async prepareMemory(text: string): Promise<{
+    extracted: ExtractedMemory;
+    embedding: number[];
+    disambiguations: EntityDisambiguation[];
+  }> {
+    // 1. Extract entities & metadata via Claude
+    const extracted = await this.claude.extract(text);
+
+    // 2. Generate embedding via OpenAI
+    const embedding = await this.openai.generateEmbedding(text);
+
+    // 3. Check each entity for disambiguation needs
+    const disambiguations: EntityDisambiguation[] = [];
+
+    for (const entity of extracted.entities) {
+      const candidates = await this.graph.findSimilarEntities(
+        entity.name,
+        entity.type,
+      );
+
+      // If exact match (score 1.0), no disambiguation needed
+      if (candidates.length === 1 && candidates[0]?.score === 1.0) {
+        continue;
+      }
+
+      // If multiple candidates, try auto-resolve with Claude
+      if (candidates.length > 1) {
+        const result = await this.claude.disambiguateEntity(
+          entity.name,
+          entity.type,
+          text,
+          candidates,
+        );
+
+        if (result.selectedIndex > 0 && result.confidence === "high") {
+          // Auto-resolved with high confidence
+          disambiguations.push({
+            extractedEntity: entity,
+            candidates,
+            autoResolved: {
+              index: result.selectedIndex - 1,
+              reasoning: result.reasoning,
+            },
+          });
+        } else if (
+          result.selectedIndex === -1 ||
+          result.confidence !== "high"
+        ) {
+          // Need user input
+          disambiguations.push({
+            extractedEntity: entity,
+            candidates,
+          });
+        }
+        // selectedIndex === 0 means new entity, no disambiguation needed
+      }
+    }
+
+    return { extracted, embedding, disambiguations };
+  }
+
+  async storeMemory(
+    text: string,
+    extracted: ExtractedMemory,
+    embedding: number[],
+    entityResolutions?: Map<string, string>, // entityName -> resolvedEntityId
+  ): Promise<string> {
+    // Build memory object
+    const memory: Memory = {
+      id: crypto.randomUUID(),
+      content: text,
+      summary: extracted.summary,
+      type: extracted.type,
+      timestamp: new Date(),
+      embedding,
+      metadata: extracted.metadata,
+    };
+
+    // Apply entity resolutions if provided
+    const resolvedEntities = extracted.entities.map((e) => {
+      const resolvedId = entityResolutions?.get(e.name);
+      return resolvedId ? { ...e, resolvedId } : e;
+    });
+
+    // Store in graph
+    await this.graph.storeMemory(
+      memory,
+      resolvedEntities,
+      extracted.relationships,
+    );
+
+    // Store hypothetical questions with embeddings
+    if (extracted.hypotheticalQuestions?.length > 0) {
+      const questionsWithEmbeddings = await Promise.all(
+        extracted.hypotheticalQuestions.map(async (question) => ({
+          question,
+          embedding: await this.openai.generateEmbedding(question),
+        })),
+      );
+      await this.graph.storeHypotheticalQuestions(
+        memory.id,
+        questionsWithEmbeddings,
+      );
+    }
+
+    return memory.id;
+  }
+
   async rememberWithContext(
     text: string,
     session: ChatSession,
@@ -133,8 +246,28 @@ export class MemorySystem {
     const history = session.getFormattedHistory();
     const expandedText = await this.claude.resolveReferences(text, history);
 
-    // Store the expanded text
+    // Store the expanded text (no disambiguation in simple mode)
     return this.remember(expandedText);
+  }
+
+  async prepareMemoryWithContext(
+    text: string,
+    session: ChatSession,
+  ): Promise<{
+    expandedText: string;
+    extracted: ExtractedMemory;
+    embedding: number[];
+    disambiguations: EntityDisambiguation[];
+  }> {
+    // Resolve references using conversation history
+    const history = session.getFormattedHistory();
+    const expandedText = await this.claude.resolveReferences(text, history);
+
+    // Prepare memory with disambiguation
+    const { extracted, embedding, disambiguations } =
+      await this.prepareMemory(expandedText);
+
+    return { expandedText, extracted, embedding, disambiguations };
   }
 
   async chat(
