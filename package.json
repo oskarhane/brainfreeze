@@ -16,7 +16,8 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f neo4j",
     "db:restart": "docker compose restart neo4j",
-    "db:clean": "docker compose down -v"
+    "db:clean": "docker compose down -v",
+    "mcp": "bun run src/mcp/server.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -27,10 +28,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
+    "@modelcontextprotocol/sdk": "^1.24.3",
     "chalk": "^5.6.2",
     "commander": "^14.0.2",
     "neo4j-driver": "^6.0.1",
     "openai": "^6.9.1",
-    "ora": "^9.0.0"
+    "ora": "^9.0.0",
+    "zod": "^4.1.13"
   }
 }
