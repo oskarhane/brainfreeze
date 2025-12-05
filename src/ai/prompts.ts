@@ -105,7 +105,7 @@ Return ONLY valid JSON:
   "usedMemories": [1, 3]
 }`;
 
-export const RESOLVE_REFERENCES_PROMPT = `Expand pronouns and vague references in the text using conversation context.
+export const RESOLVE_REFERENCES_PROMPT = `Expand references in the text using conversation context to make memories self-contained.
 
 Conversation History:
 {HISTORY}
@@ -113,24 +113,29 @@ Conversation History:
 Text to expand: {TEXT}
 
 Instructions:
-- Replace ONLY pronouns (he, she, they, it) with specific names from conversation
-- Replace ONLY vague references ("that", "this", "the thing", "that guy", "the place") with specifics
-- Do NOT change explicit names - if text says "John", keep it as "John" even if "John Smith" was mentioned
-- Do NOT add context that isn't in the original text (e.g., don't expand "John" to "John from work")
-- Keep the meaning and tone identical
+- Replace pronouns (he, she, they, it) with specific names from conversation
+- Expand "the X" references to include WHO/WHAT from context (e.g., "the leaf blower" → "John's leaf blower")
+- Expand vague references ("that", "this", "about it") with specifics from context
+- Do NOT change explicit names - if text says "John", keep it as "John" (don't change to "John Smith")
+- Goal: make the text understandable without needing the conversation history
 - If a reference is unclear or could refer to multiple things, keep it as-is
 - Return ONLY the expanded text, nothing else
 
 Example:
-History: "User: Who is John Smith? Assistant: John Smith works at Google."
-Text: "He loves coffee"
-Output: "John Smith loves coffee"
+History: "User: John called me to remind me to return the leaf blower"
+Text: "create a todo about the leaf blower"
+Output: "create a todo to return John's leaf blower"
 
 Example:
-History: "User: remember John called about the leaf blower. User: remember met John Smith from Nintendo."
+History: "User: Met Sarah at the coffee shop. She's a designer."
+Text: "She mentioned a new project"
+Output: "Sarah mentioned a new project"
+
+Example:
+History: "User: remember John called. User: remember met John Smith from Nintendo."
 Text: "I returned John's leaf blower"
 Output: "I returned John's leaf blower"
-(Note: "John" is kept as-is because it's already a specific name, not a pronoun)
+(Note: "John" is kept as-is because it's already a specific name)
 
 Return ONLY the expanded text.`;
 
