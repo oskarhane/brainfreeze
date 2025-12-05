@@ -105,6 +105,78 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "get_entity_history",
+  {
+    title: "Get Entity History",
+    description: "Get entity's current state and version history",
+    inputSchema: {
+      entityName: z.string().describe("Entity name to query"),
+      limit: z
+        .number()
+        .optional()
+        .default(10)
+        .describe("Max versions to return (default 10)"),
+    },
+  },
+  async ({ entityName, limit }) => {
+    const system = createMemorySystem();
+    try {
+      // Find entity
+      const candidates = await system.graph.findSimilarEntities(entityName);
+
+      if (candidates.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "Entity not found",
+                query: entityName,
+              }),
+            },
+          ],
+        };
+      }
+
+      if (!candidates[0]) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "Entity not found",
+                query: entityName,
+              }),
+            },
+          ],
+        };
+      }
+
+      const entity = candidates[0].entity;
+      const history = await system.graph.getEntityHistory(
+        entity.id,
+        limit ?? 10,
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              entity: history.current,
+              history: history.history,
+              matchScore: candidates[0].score,
+            }),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

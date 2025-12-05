@@ -12,6 +12,9 @@ Return ONLY valid JSON:
   "relationships": [
     {"from": "Entity1", "to": "Entity2", "type": "KNOWS|WORKS_AT|LIVES_IN|VISITED|RELATED_TO|PART_OF|MENTIONED_WITH", "context": "optional"}
   ],
+  "propertyUpdates": [
+    {"entityName": "Entity name", "updates": {"propertyName": "value"}}
+  ],
   "temporal": {
     "references": ["yesterday", "next week"],
     "timeOfDay": "morning|afternoon|evening|null"
@@ -41,6 +44,14 @@ Relationship types:
 - LIKES: person likes something
 - DISLIKES: person dislikes something
 - PREFERS: person prefers something
+
+Property updates:
+- Detect statements that assign properties to entities
+- "John's last name is Jackson" -> {entityName: "John", updates: {lastName: "Jackson"}}
+- "Sarah's email is sarah@example.com" -> {entityName: "Sarah", updates: {email: "sarah@example.com"}}
+- Property names must be camelCase
+- Property values must be strings
+- Extract both the entity AND the property update
 
 IMPORTANT: For first-person statements (I, me, my), use "User" as the entity name.
 - "I hate oatmilk" → entity: User, relationship: User -[DISLIKES]-> oatmilk

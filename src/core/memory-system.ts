@@ -11,7 +11,7 @@ import type { ChatSession } from "./chat-session";
 
 export class MemorySystem {
   constructor(
-    private graph: GraphClient,
+    public graph: GraphClient,
     private claude: ClaudeClient,
     private openai: OpenAIClient,
   ) {}
@@ -23,7 +23,34 @@ export class MemorySystem {
     // 2. Generate embedding via OpenAI
     const embedding = await this.openai.generateEmbedding(text);
 
-    // 3. Build memory object
+    // 3. Handle property updates
+    if (extracted.propertyUpdates && extracted.propertyUpdates.length > 0) {
+      for (const update of extracted.propertyUpdates) {
+        const candidates = await this.graph.findSimilarEntities(
+          update.entityName,
+        );
+
+        if (
+          candidates.length > 0 &&
+          candidates[0] &&
+          candidates[0].score === 1.0
+        ) {
+          // Exact match - update entity
+          await this.graph.updateEntity(
+            candidates[0].entity.id,
+            update.updates,
+          );
+        } else if (candidates.length > 1) {
+          // Ambiguous - log warning
+          console.warn(
+            `Ambiguous entity for property update: ${update.entityName}`,
+          );
+        }
+        // No match - entity will be created in storeMemory below
+      }
+    }
+
+    // 4. Build memory object
     const memory: Memory = {
       id: crypto.randomUUID(),
       content: text,
@@ -34,14 +61,14 @@ export class MemorySystem {
       metadata: extracted.metadata,
     };
 
-    // 4. Store in graph
+    // 5. Store in graph
     await this.graph.storeMemory(
       memory,
       extracted.entities,
       extracted.relationships,
     );
 
-    // 5. Store hypothetical questions with embeddings
+    // 6. Store hypothetical questions with embeddings
     if (extracted.hypotheticalQuestions?.length > 0) {
       const questionsWithEmbeddings = await Promise.all(
         extracted.hypotheticalQuestions.map(async (question) => ({

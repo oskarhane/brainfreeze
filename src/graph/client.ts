@@ -90,6 +90,17 @@ export class GraphClient {
         FOR (q:HypotheticalQuestion) REQUIRE q.id IS UNIQUE
       `);
 
+      // Create constraint for entity versions
+      await session.run(`
+        CREATE CONSTRAINT entity_version_id IF NOT EXISTS
+        FOR (ev:EntityVersion) REQUIRE ev.id IS UNIQUE
+      `);
+
+      await session.run(`
+        CREATE INDEX entity_version_entity_id IF NOT EXISTS
+        FOR (ev:EntityVersion) ON (ev.entityId)
+      `);
+
       // Create vector index for hypothetical questions
       try {
         await session.run(`
@@ -283,6 +294,180 @@ export class GraphClient {
           );
         }
       });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async updateEntity(
+    entityId: string,
+    propertyUpdates: Record<string, string>,
+  ): Promise<void> {
+    const session = this.driver.session({ database: this.database });
+    try {
+      await session.executeWrite(async (tx) => {
+        // Get current entity state
+        const result = await tx.run(
+          `MATCH (e:Entity {id: $entityId})
+           RETURN e.name as name, e.properties as properties, e.version as version`,
+          { entityId },
+        );
+
+        if (result.records.length === 0) {
+          throw new Error(`Entity ${entityId} not found`);
+        }
+
+        const current = result.records[0];
+        const currentName = current.get("name");
+        const currentPropertiesJson = current.get("properties") || "{}";
+        const currentProperties =
+          typeof currentPropertiesJson === "string"
+            ? JSON.parse(currentPropertiesJson)
+            : currentPropertiesJson;
+        const currentVersion = current.get("version") || 0;
+
+        // Create EntityVersion snapshot
+        await tx.run(
+          `CREATE (ev:EntityVersion {
+            id: randomUUID(),
+            entityId: $entityId,
+            version: $version,
+            name: $name,
+            properties: $properties,
+            createdAt: datetime()
+          })`,
+          {
+            entityId,
+            version: currentVersion,
+            name: currentName,
+            properties: JSON.stringify(currentProperties),
+          },
+        );
+
+        // Link Entity to new EntityVersion (delete old relationship first)
+        await tx.run(
+          `MATCH (e:Entity {id: $entityId})
+           OPTIONAL MATCH (e)-[r:PREVIOUS_VERSION]->()
+           DELETE r
+           WITH e
+           MATCH (ev:EntityVersion {entityId: $entityId, version: $version})
+           CREATE (e)-[:PREVIOUS_VERSION]->(ev)`,
+          { entityId, version: currentVersion },
+        );
+
+        // Find previous EntityVersion and link
+        if (currentVersion > 0) {
+          await tx.run(
+            `MATCH (ev1:EntityVersion {entityId: $entityId, version: $currentVersion})
+             MATCH (ev2:EntityVersion {entityId: $entityId, version: $previousVersion})
+             MERGE (ev1)-[:PREVIOUS_VERSION]->(ev2)`,
+            {
+              entityId,
+              currentVersion,
+              previousVersion: currentVersion - 1,
+            },
+          );
+        }
+
+        // Update Entity with new properties
+        const newProperties = { ...currentProperties, ...propertyUpdates };
+        await tx.run(
+          `MATCH (e:Entity {id: $entityId})
+           SET e.properties = $properties,
+               e.version = $version,
+               e.updatedAt = datetime()`,
+          {
+            entityId,
+            properties: JSON.stringify(newProperties),
+            version: currentVersion + 1,
+          },
+        );
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getEntityHistory(
+    entityId: string,
+    limit: number = 10,
+  ): Promise<{
+    current: Entity;
+    history: Array<{
+      id: string;
+      entityId: string;
+      version: number;
+      name: string;
+      properties: Record<string, string>;
+      createdAt: Date;
+    }>;
+  }> {
+    const session = this.driver.session({ database: this.database });
+    try {
+      // Get current entity
+      const entityResult = await session.run(
+        `MATCH (e:Entity {id: $entityId})
+         RETURN e`,
+        { entityId },
+      );
+
+      if (entityResult.records.length === 0) {
+        throw new Error(`Entity ${entityId} not found`);
+      }
+
+      const entityNode = entityResult.records[0].get("e");
+      const propertiesJson = entityNode.properties.properties || "{}";
+      const properties =
+        typeof propertiesJson === "string"
+          ? JSON.parse(propertiesJson)
+          : propertiesJson;
+
+      const currentEntity: Entity = {
+        id: entityNode.properties.id,
+        name: entityNode.properties.name,
+        type: entityNode.properties.type,
+        aliases: entityNode.properties.aliases || [],
+        properties,
+        version:
+          entityNode.properties.version?.toNumber?.() ||
+          entityNode.properties.version ||
+          0,
+        updatedAt: entityNode.properties.updatedAt
+          ? new Date(entityNode.properties.updatedAt.toString())
+          : undefined,
+      };
+
+      // Get version history
+      const historyResult = await session.run(
+        `MATCH path = (e:Entity {id: $entityId})-[:PREVIOUS_VERSION*]->(ev:EntityVersion)
+         WITH ev, length(path) as depth
+         ORDER BY depth ASC
+         LIMIT $limit
+         RETURN ev
+         ORDER BY ev.version DESC`,
+        { entityId, limit: neo4j.int(limit) },
+      );
+
+      const history = historyResult.records.map((record) => {
+        const ev = record.get("ev");
+        const versionPropertiesJson = ev.properties.properties || "{}";
+        const versionProperties =
+          typeof versionPropertiesJson === "string"
+            ? JSON.parse(versionPropertiesJson)
+            : versionPropertiesJson;
+
+        return {
+          id: ev.properties.id,
+          entityId: ev.properties.entityId,
+          version:
+            ev.properties.version?.toNumber?.() || ev.properties.version || 0,
+          name: ev.properties.name,
+          properties: versionProperties,
+          createdAt: new Date(ev.properties.createdAt.toString()),
+        };
+      });
+
+      return { current: currentEntity, history };
     } finally {
       await session.close();
     }

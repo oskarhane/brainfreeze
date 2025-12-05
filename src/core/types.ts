@@ -16,9 +16,26 @@ export interface Entity {
   type: EntityType;
   context?: string;
   aliases?: string[];
+  properties?: Record<string, string>;
+  version?: number;
+  updatedAt?: Date;
 }
 
 export type EntityType = "person" | "place" | "concept" | "organization";
+
+export interface EntityVersion {
+  id: string;
+  entityId: string;
+  version: number;
+  name: string;
+  properties: Record<string, string>;
+  createdAt: Date;
+}
+
+export interface PropertyUpdate {
+  entityName: string;
+  updates: Record<string, string>;
+}
 
 export interface MemoryMetadata {
   location?: string;
@@ -52,6 +69,7 @@ export interface ExtractedMemory {
     context?: string;
   }>;
   relationships: Relationship[];
+  propertyUpdates?: PropertyUpdate[];
   temporal: {
     references: string[];
     timeOfDay?: "morning" | "afternoon" | "evening";
