@@ -63,7 +63,19 @@ export class ClaudeClient {
   async synthesizeAnswer(
     question: string,
     memories: Memory[],
+    entities: Array<{ entity: Entity; memoryCount: number }> = [],
   ): Promise<{ answer: string; usedMemoryIndices: number[] }> {
+    // Format entities for the prompt
+    const entitiesText =
+      entities.length > 0
+        ? entities
+            .map(
+              (e) =>
+                `- ${e.entity.name} (${e.entity.type})${e.entity.aliases?.length ? ` [aliases: ${e.entity.aliases.join(", ")}]` : ""} - ${e.memoryCount} memories`,
+            )
+            .join("\n")
+        : "No entities found.";
+
     // Format memories for the prompt
     const memoriesText = memories
       .map(
@@ -75,10 +87,9 @@ Type: ${m.type}`,
       )
       .join("\n\n");
 
-    const prompt = SYNTHESIS_PROMPT.replace("{QUESTION}", question).replace(
-      "{MEMORIES}",
-      memoriesText,
-    );
+    const prompt = SYNTHESIS_PROMPT.replace("{QUESTION}", question)
+      .replace("{ENTITIES}", entitiesText)
+      .replace("{MEMORIES}", memoriesText);
 
     try {
       const response = await this.client.messages.create({
@@ -122,7 +133,19 @@ Type: ${m.type}`,
     question: string,
     memories: Memory[],
     conversationHistory: string,
+    entities: Array<{ entity: Entity; memoryCount: number }> = [],
   ): Promise<{ answer: string; usedMemoryIndices: number[] }> {
+    // Format entities for the prompt
+    const entitiesText =
+      entities.length > 0
+        ? entities
+            .map(
+              (e) =>
+                `- ${e.entity.name} (${e.entity.type})${e.entity.aliases?.length ? ` [aliases: ${e.entity.aliases.join(", ")}]` : ""} - ${e.memoryCount} memories`,
+            )
+            .join("\n")
+        : "No entities found.";
+
     // Format memories for the prompt
     const memoriesText = memories
       .map(
@@ -135,6 +158,7 @@ Type: ${m.type}`,
       .join("\n\n");
 
     const prompt = CHAT_PROMPT.replace("{QUESTION}", question)
+      .replace("{ENTITIES}", entitiesText)
       .replace("{MEMORIES}", memoriesText)
       .replace(
         "{HISTORY}",

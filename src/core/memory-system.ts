@@ -80,10 +80,17 @@ export class MemorySystem {
     // 1. Recall relevant memories
     const memories = await this.recall(question, limit, !vectorOnly);
 
-    // 2. Synthesize answer using Claude
-    const result = await this.claude.synthesizeAnswer(question, memories);
+    // 2. Get relevant entities (all entities for now, could optimize later)
+    const entities = await this.graph.getAllEntities();
 
-    // 3. Filter to only memories that were actually used
+    // 3. Synthesize answer using Claude with both memories and entities
+    const result = await this.claude.synthesizeAnswer(
+      question,
+      memories,
+      entities,
+    );
+
+    // 4. Filter to only memories that were actually used
     const usedMemories = result.usedMemoryIndices
       .map((idx) => memories[idx - 1]) // Convert 1-based to 0-based index
       .filter((m) => m !== undefined);
@@ -285,15 +292,23 @@ export class MemorySystem {
     // 3. Get conversation history for context
     const history = session.getFormattedHistory();
 
-    // 4. Get answer using chat method with conversation context
-    const result = await this.claude.chatAnswer(question, memories, history);
+    // 4. Get all entities for context
+    const entities = await this.graph.getAllEntities();
 
-    // 5. Filter to only memories that were actually used
+    // 5. Get answer using chat method with conversation context and entities
+    const result = await this.claude.chatAnswer(
+      question,
+      memories,
+      history,
+      entities,
+    );
+
+    // 6. Filter to only memories that were actually used
     const usedMemories = result.usedMemoryIndices
       .map((idx) => memories[idx - 1])
       .filter((m) => m !== undefined);
 
-    // 6. Add assistant response to session
+    // 7. Add assistant response to session
     session.addAssistantMessage(result.answer, usedMemories);
 
     return {

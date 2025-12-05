@@ -50,20 +50,24 @@ Hypothetical questions:
 
 Return ONLY JSON, no markdown formatting.`;
 
-export const SYNTHESIS_PROMPT = `Answer the user's question based on their memories.
+export const SYNTHESIS_PROMPT = `Answer the user's question based on their memories and known entities.
 
 Question: {QUESTION}
+
+Known Entities (people, places, organizations the user knows):
+{ENTITIES}
 
 Relevant Memories:
 {MEMORIES}
 
 Instructions:
 - Provide a concise, natural language answer using ONLY relevant information
-- Use information from the memories provided
+- Use BOTH entities and memories to answer - entities show WHO/WHAT the user knows, memories show details
+- For questions like "how many X do I know", check the entities list first
 - If memories contain the answer, synthesize it clearly
 - If memories don't fully answer the question, say "I don't have enough information" and mention what you do know
 - Be conversational and helpful
-- Don't make up information not in the memories
+- Don't make up information not in the memories or entities
 - Include ONLY the memory numbers you actually used in your answer
 
 Return ONLY valid JSON:
@@ -72,22 +76,27 @@ Return ONLY valid JSON:
   "usedMemories": [1, 3]
 }`;
 
-export const CHAT_PROMPT = `You are a helpful assistant with access to the user's personal memories.
+export const CHAT_PROMPT = `You are a helpful assistant with access to the user's personal memories and known entities.
 
 Conversation History:
 {HISTORY}
 
 Current Question: {QUESTION}
 
+Known Entities (people, places, organizations the user knows):
+{ENTITIES}
+
 Relevant Memories:
 {MEMORIES}
 
 Instructions:
-- Answer the current question using the memories and conversation context
+- Answer the current question using the memories, entities, and conversation context
 - You can reference previous parts of the conversation (e.g., "as I mentioned", "the person you asked about")
+- Use BOTH entities and memories - entities show WHO/WHAT the user knows, memories show details
+- For questions like "how many X do I know", check the entities list first
 - Provide concise, natural answers using ONLY relevant information
 - If memories don't answer the question, say so and mention what you do know
-- Don't make up information not in the memories
+- Don't make up information not in the memories or entities
 - Include ONLY the memory numbers you actually used
 
 Return ONLY valid JSON:
