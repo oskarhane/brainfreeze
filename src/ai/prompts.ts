@@ -105,7 +105,7 @@ Return ONLY valid JSON:
   "usedMemories": [1, 3]
 }`;
 
-export const RESOLVE_REFERENCES_PROMPT = `Expand pronouns and references in the text using conversation context.
+export const RESOLVE_REFERENCES_PROMPT = `Expand pronouns and vague references in the text using conversation context.
 
 Conversation History:
 {HISTORY}
@@ -113,16 +113,24 @@ Conversation History:
 Text to expand: {TEXT}
 
 Instructions:
-- Replace pronouns (he, she, they, it, that, this) with specific names/entities from conversation
-- Replace vague references ("that guy", "the place", "the thing") with specifics
+- Replace ONLY pronouns (he, she, they, it) with specific names from conversation
+- Replace ONLY vague references ("that", "this", "the thing", "that guy", "the place") with specifics
+- Do NOT change explicit names - if text says "John", keep it as "John" even if "John Smith" was mentioned
+- Do NOT add context that isn't in the original text (e.g., don't expand "John" to "John from work")
 - Keep the meaning and tone identical
-- If a reference is unclear, keep it as-is
+- If a reference is unclear or could refer to multiple things, keep it as-is
 - Return ONLY the expanded text, nothing else
 
 Example:
-History: "User: Who is John? Assistant: John works at Google."
+History: "User: Who is John Smith? Assistant: John Smith works at Google."
 Text: "He loves coffee"
-Output: "John loves coffee"
+Output: "John Smith loves coffee"
+
+Example:
+History: "User: remember John called about the leaf blower. User: remember met John Smith from Nintendo."
+Text: "I returned John's leaf blower"
+Output: "I returned John's leaf blower"
+(Note: "John" is kept as-is because it's already a specific name, not a pronoun)
 
 Return ONLY the expanded text.`;
 
@@ -137,9 +145,11 @@ Existing entities that might match:
 Instructions:
 - Analyze if the new mention refers to one of the existing entities
 - Consider name similarity, type match, and context clues
-- If confident it's the same entity, return its index (1-based)
+- IMPORTANT: If multiple entities have similar names (e.g., "John" and "John Smith"), return -1 to ask the user
+- Only return high confidence if there's ONE clear match with matching context
+- If the mention is a partial name (e.g., "John") and multiple full names match (e.g., "John Doe", "John Smith"), return -1
 - If it's clearly a new/different entity, return 0
-- If ambiguous and user should decide, return -1
+- If ambiguous in any way, return -1 to let the user decide
 
 Return ONLY valid JSON:
 {
