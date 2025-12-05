@@ -76,23 +76,27 @@ export class MemorySystem {
     question: string,
     limit = 5,
     vectorOnly = false,
+    conversationHistory?: string,
   ): Promise<{ answer: string; sources: Memory[] }> {
     // 1. Recall relevant memories
     const memories = await this.recall(question, limit, !vectorOnly);
 
-    // 2. Get relevant entities (all entities for now, could optimize later)
+    // 2. Get relevant entities
     const entities = await this.graph.getAllEntities();
 
-    // 3. Synthesize answer using Claude with both memories and entities
-    const result = await this.claude.synthesizeAnswer(
-      question,
-      memories,
-      entities,
-    );
+    // 3. Synthesize answer - use chat method if history provided
+    const result = conversationHistory
+      ? await this.claude.chatAnswer(
+          question,
+          memories,
+          conversationHistory,
+          entities,
+        )
+      : await this.claude.synthesizeAnswer(question, memories, entities);
 
     // 4. Filter to only memories that were actually used
     const usedMemories = result.usedMemoryIndices
-      .map((idx) => memories[idx - 1]) // Convert 1-based to 0-based index
+      .map((idx) => memories[idx - 1])
       .filter((m) => m !== undefined);
 
     return {
@@ -286,35 +290,16 @@ export class MemorySystem {
     // 1. Add user message to session
     session.addUserMessage(question);
 
-    // 2. Recall relevant memories
-    const memories = await this.recall(question, limit, !vectorOnly);
-
-    // 3. Get conversation history for context
+    // 2. Get conversation history for context
     const history = session.getFormattedHistory();
 
-    // 4. Get all entities for context
-    const entities = await this.graph.getAllEntities();
+    // 3. Use shared answer logic with conversation history
+    const result = await this.answer(question, limit, vectorOnly, history);
 
-    // 5. Get answer using chat method with conversation context and entities
-    const result = await this.claude.chatAnswer(
-      question,
-      memories,
-      history,
-      entities,
-    );
+    // 4. Add assistant response to session
+    session.addAssistantMessage(result.answer, result.sources);
 
-    // 6. Filter to only memories that were actually used
-    const usedMemories = result.usedMemoryIndices
-      .map((idx) => memories[idx - 1])
-      .filter((m) => m !== undefined);
-
-    // 7. Add assistant response to session
-    session.addAssistantMessage(result.answer, usedMemories);
-
-    return {
-      answer: result.answer,
-      sources: usedMemories,
-    };
+    return result;
   }
 
   async close(): Promise<void> {
