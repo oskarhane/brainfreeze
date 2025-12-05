@@ -426,6 +426,13 @@ program
             storeSpinner.succeed(
               chalk.green(`Stored: ${id.substring(0, 8)}...`),
             );
+
+            // Add to session history so future references can resolve
+            session.addUserMessage(`remember ${text}`);
+            session.addAssistantMessage(
+              `Stored memory: "${expandedText}" (summary: ${extracted.summary})`,
+            );
+
             console.log();
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
