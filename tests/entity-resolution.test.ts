@@ -189,39 +189,174 @@ describe("Entity Resolution", () => {
     });
 
     test("does NOT link to multiple entities without explicit resolution", async () => {
-      const dupe1 = `Walter ${TEST_SUFFIX}`;
-      const dupe2 = `Walton ${TEST_SUFFIX}`;
+      // Use very distinct names that Claude won't confuse
+      const uniqueId = Date.now().toString().slice(-4);
+      const person1 = `Dmitri${uniqueId}`;
+      const person2 = `Sergei${uniqueId}`;
+
       // Create two distinct entities
-      await system.remember(`${dupe1} likes coffee`);
-      await system.remember(`${dupe2} likes tea`);
+      await system.remember(`${person1} likes coffee`);
+      await system.remember(`${person2} likes tea`);
 
       // Get initial memory counts
       const entitiesBefore = await graph.getAllEntities();
-      const dupe1Before = entitiesBefore.find((e) =>
-        e.entity.name.includes("Walter"),
+      const person1Before = entitiesBefore.find((e) =>
+        e.entity.name.includes(person1.slice(0, 6)),
       );
-      const dupe2Before = entitiesBefore.find((e) =>
-        e.entity.name.includes("Walton"),
+      const person2Before = entitiesBefore.find((e) =>
+        e.entity.name.includes(person2.slice(0, 6)),
       );
 
-      expect(dupe1Before).toBeDefined();
-      expect(dupe2Before).toBeDefined();
+      expect(person1Before).toBeDefined();
+      expect(person2Before).toBeDefined();
 
-      // Store a memory that mentions dupe1 specifically
-      // Using the direct remember() which should only link to exact match
-      await system.remember(`${dupe1} also likes juice`);
+      const person1CountBefore = person1Before!.memoryCount;
+      const person2CountBefore = person2Before!.memoryCount;
 
-      // Verify only dupe1's count increased
+      // Store a memory that mentions person1 specifically
+      await system.remember(`${person1} also likes juice`);
+
+      // Verify only person1's count increased
       const entitiesAfter = await graph.getAllEntities();
-      const dupe1After = entitiesAfter.find((e) =>
-        e.entity.name.includes("Walter"),
+      const person1After = entitiesAfter.find((e) =>
+        e.entity.name.includes(person1.slice(0, 6)),
       );
-      const dupe2After = entitiesAfter.find((e) =>
-        e.entity.name.includes("Walton"),
+      const person2After = entitiesAfter.find((e) =>
+        e.entity.name.includes(person2.slice(0, 6)),
       );
 
-      expect(dupe1After?.memoryCount).toBe((dupe1Before?.memoryCount || 0) + 1);
-      expect(dupe2After?.memoryCount).toBe(dupe2Before?.memoryCount || 1);
+      expect(person1After?.memoryCount).toBe(person1CountBefore + 1);
+      expect(person2After?.memoryCount).toBe(person2CountBefore);
+    });
+  });
+
+  describe("disambiguation with relationships", () => {
+    test("resolved entity is used for relationships, not the extracted name", async () => {
+      // This is the bug: "John is based in Chicago" extracts entity "John"
+      // User disambiguates to "John Smith", but LIVES_IN relationship still
+      // links to "John" because relationships use normalizedName lookup
+
+      const john1 = `John ${TEST_SUFFIX}`;
+      const john2 = `John Smith ${TEST_SUFFIX}`;
+      const city = `Chicago ${TEST_SUFFIX}`;
+
+      // Create two Johns and a city
+      await system.remember(`${john1} works at Google`);
+      await system.remember(`${john2} is a designer`);
+      await system.remember(`${city} is a great city`);
+
+      // Get john2's entity ID (we'll disambiguate to this one)
+      const entitiesBefore = await graph.getAllEntities();
+      const john2Entity = entitiesBefore.find((e) =>
+        e.entity.name.includes("John Smith"),
+      );
+      expect(john2Entity).toBeDefined();
+
+      // Prepare memory "John is based in Chicago" - this extracts "John" not "John Smith"
+      const { extracted, embedding } = await system.prepareMemory(
+        `John is based in ${city}`,
+      );
+
+      // User selects "John Smith" for disambiguation
+      const resolutions = new Map<string, string>();
+      const johnEntity = extracted.entities.find((e) =>
+        e.name.toLowerCase().includes("john"),
+      );
+      if (johnEntity) {
+        resolutions.set(johnEntity.name, john2Entity!.entity.id);
+      }
+
+      await system.storeMemory(
+        `John is based in ${city}`,
+        extracted,
+        embedding,
+        resolutions,
+      );
+
+      // Verify: John Smith should have the LIVES_IN relationship, NOT John
+      const session = (graph as any).driver.session({
+        database: (graph as any).database,
+      });
+      try {
+        // Check which John has LIVES_IN relationship to Chicago
+        const result = await session.run(
+          `MATCH (j:Entity)-[:LIVES_IN]->(c:Entity)
+           WHERE j.name CONTAINS 'John' AND c.name CONTAINS 'Chicago'
+           RETURN j.name as johnName`,
+        );
+
+        const johnsWithRelationship = result.records.map((r: any) =>
+          r.get("johnName"),
+        );
+
+        // Should be John Smith (or variant), not plain John
+        const hasJohnSmith = johnsWithRelationship.some(
+          (name: string) =>
+            name.includes("John Smith") || name.includes("John smith"),
+        );
+        const hasPlainJohn = johnsWithRelationship.some(
+          (name: string) =>
+            name === "John" ||
+            (name.includes("John") &&
+              !name.includes("Smith") &&
+              !name.includes("smith")),
+        );
+
+        expect(hasJohnSmith).toBe(true);
+        expect(hasPlainJohn).toBe(false);
+      } finally {
+        await session.close();
+      }
+    });
+
+    test("memory MENTIONS only the resolved entity, not both", async () => {
+      const alice1 = `Alice ${TEST_SUFFIX}`;
+      const alice2 = `Alice Wong ${TEST_SUFFIX}`;
+
+      // Create two Alices
+      await system.remember(`${alice1} is a developer`);
+      await system.remember(`${alice2} is a manager`);
+
+      const entitiesBefore = await graph.getAllEntities();
+      const alice1Entity = entitiesBefore.find((e) => e.entity.name === alice1);
+      const alice2Entity = entitiesBefore.find((e) =>
+        e.entity.name.includes("Alice Wong"),
+      );
+      expect(alice1Entity).toBeDefined();
+      expect(alice2Entity).toBeDefined();
+
+      const alice1CountBefore = alice1Entity!.memoryCount;
+      const alice2CountBefore = alice2Entity!.memoryCount;
+
+      // Prepare memory mentioning "Alice"
+      const { extracted, embedding } =
+        await system.prepareMemory(`Alice loves hiking`);
+
+      // User selects Alice Wong
+      const resolutions = new Map<string, string>();
+      const aliceEntity = extracted.entities.find((e) =>
+        e.name.toLowerCase().includes("alice"),
+      );
+      if (aliceEntity) {
+        resolutions.set(aliceEntity.name, alice2Entity!.entity.id);
+      }
+
+      await system.storeMemory(
+        `Alice loves hiking`,
+        extracted,
+        embedding,
+        resolutions,
+      );
+
+      // Verify: only Alice Wong's count increased
+      const entitiesAfter = await graph.getAllEntities();
+      const alice1After = entitiesAfter.find((e) => e.entity.name === alice1);
+      const alice2After = entitiesAfter.find((e) =>
+        e.entity.name.includes("Alice Wong"),
+      );
+
+      expect(alice1After!.memoryCount).toBe(alice1CountBefore); // unchanged
+      expect(alice2After!.memoryCount).toBe(alice2CountBefore + 1); // increased
     });
   });
 

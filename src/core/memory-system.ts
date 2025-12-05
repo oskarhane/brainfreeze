@@ -225,11 +225,12 @@ export class MemorySystem {
       return resolvedId ? { ...e, resolvedId } : e;
     });
 
-    // Store in graph
+    // Store in graph - pass resolutions so relationships use correct entities
     await this.graph.storeMemory(
       memory,
       resolvedEntities,
       extracted.relationships,
+      entityResolutions,
     );
 
     // Store hypothetical questions with embeddings

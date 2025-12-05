@@ -124,6 +124,7 @@ export class GraphClient {
       resolvedId?: string;
     }>,
     relationships: Relationship[] = [],
+    entityResolutions?: Map<string, string>, // entityName -> resolvedEntityId
   ): Promise<void> {
     const session = this.driver.session({ database: this.database });
     try {
@@ -184,22 +185,72 @@ export class GraphClient {
         }
 
         // Create entity-entity relationships
+        // Use resolved entity IDs when available
         for (const rel of relationships) {
-          const fromNormalized = this.normalizeEntityName(rel.from);
-          const toNormalized = this.normalizeEntityName(rel.to);
+          const fromResolvedId = entityResolutions?.get(rel.from);
+          const toResolvedId = entityResolutions?.get(rel.to);
 
-          await tx.run(
-            `MATCH (from:Entity {normalizedName: $fromNormalized})
-             MATCH (to:Entity {normalizedName: $toNormalized})
-             MERGE (from)-[r:\`${rel.type}\`]->(to)
-             ON CREATE SET r.firstSeen = datetime(), r.context = $context
-             ON MATCH SET r.lastSeen = datetime()`,
-            {
-              fromNormalized,
-              toNormalized,
-              context: rel.context || "",
-            },
-          );
+          if (fromResolvedId && toResolvedId) {
+            // Both resolved by ID
+            await tx.run(
+              `MATCH (from:Entity {id: $fromId})
+               MATCH (to:Entity {id: $toId})
+               MERGE (from)-[r:\`${rel.type}\`]->(to)
+               ON CREATE SET r.firstSeen = datetime(), r.context = $context
+               ON MATCH SET r.lastSeen = datetime()`,
+              {
+                fromId: fromResolvedId,
+                toId: toResolvedId,
+                context: rel.context || "",
+              },
+            );
+          } else if (fromResolvedId) {
+            // From resolved by ID, to by normalized name
+            const toNormalized = this.normalizeEntityName(rel.to);
+            await tx.run(
+              `MATCH (from:Entity {id: $fromId})
+               MATCH (to:Entity {normalizedName: $toNormalized})
+               MERGE (from)-[r:\`${rel.type}\`]->(to)
+               ON CREATE SET r.firstSeen = datetime(), r.context = $context
+               ON MATCH SET r.lastSeen = datetime()`,
+              {
+                fromId: fromResolvedId,
+                toNormalized,
+                context: rel.context || "",
+              },
+            );
+          } else if (toResolvedId) {
+            // From by normalized name, to resolved by ID
+            const fromNormalized = this.normalizeEntityName(rel.from);
+            await tx.run(
+              `MATCH (from:Entity {normalizedName: $fromNormalized})
+               MATCH (to:Entity {id: $toId})
+               MERGE (from)-[r:\`${rel.type}\`]->(to)
+               ON CREATE SET r.firstSeen = datetime(), r.context = $context
+               ON MATCH SET r.lastSeen = datetime()`,
+              {
+                fromNormalized,
+                toId: toResolvedId,
+                context: rel.context || "",
+              },
+            );
+          } else {
+            // Neither resolved, use normalized names
+            const fromNormalized = this.normalizeEntityName(rel.from);
+            const toNormalized = this.normalizeEntityName(rel.to);
+            await tx.run(
+              `MATCH (from:Entity {normalizedName: $fromNormalized})
+               MATCH (to:Entity {normalizedName: $toNormalized})
+               MERGE (from)-[r:\`${rel.type}\`]->(to)
+               ON CREATE SET r.firstSeen = datetime(), r.context = $context
+               ON MATCH SET r.lastSeen = datetime()`,
+              {
+                fromNormalized,
+                toNormalized,
+                context: rel.context || "",
+              },
+            );
+          }
         }
       });
     } finally {
