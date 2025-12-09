@@ -192,22 +192,48 @@ export class GraphClient {
               },
             );
           } else {
-            // Create or merge entity by normalized name
+            // First check if this name matches any existing entity's aliases
             const normalizedName = this.normalizeEntityName(entity.name);
-            await tx.run(
-              `MERGE (e:Entity {normalizedName: $normalizedName, type: $type})
-               ON CREATE SET e.id = randomUUID(), e.name = $name, e.firstSeen = datetime()
-               ON MATCH SET e.name = $name, e.lastSeen = datetime()
-               WITH e
-               MATCH (m:Memory {id: $memoryId})
-               CREATE (m)-[:MENTIONS]->(e)`,
-              {
-                normalizedName,
-                name: entity.name,
-                type: entity.type,
-                memoryId: memory.id,
-              },
+            const aliasCheck = await tx.run(
+              `MATCH (e:Entity)
+               WHERE $normalizedName IN [alias IN coalesce(e.aliases, []) | toLower(trim(alias))]
+               OR e.normalizedName = $normalizedName
+               RETURN e
+               LIMIT 1`,
+              { normalizedName },
             );
+
+            if (aliasCheck.records.length > 0) {
+              // Found entity by alias or normalized name, link to it
+              const existingEntity = aliasCheck.records[0].get("e");
+              await tx.run(
+                `MATCH (e:Entity {id: $entityId})
+                 SET e.lastSeen = datetime()
+                 WITH e
+                 MATCH (m:Memory {id: $memoryId})
+                 CREATE (m)-[:MENTIONS]->(e)`,
+                {
+                  entityId: existingEntity.properties.id,
+                  memoryId: memory.id,
+                },
+              );
+            } else {
+              // Create or merge entity by normalized name
+              await tx.run(
+                `MERGE (e:Entity {normalizedName: $normalizedName, type: $type})
+                 ON CREATE SET e.id = randomUUID(), e.name = $name, e.firstSeen = datetime()
+                 ON MATCH SET e.name = $name, e.lastSeen = datetime()
+                 WITH e
+                 MATCH (m:Memory {id: $memoryId})
+                 CREATE (m)-[:MENTIONS]->(e)`,
+                {
+                  normalizedName,
+                  name: entity.name,
+                  type: entity.type,
+                  memoryId: memory.id,
+                },
+              );
+            }
           }
         }
 
