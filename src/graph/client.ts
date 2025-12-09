@@ -774,6 +774,9 @@ export class GraphClient {
         for (const word of words) {
           if (word.length < 2) continue;
 
+          // Escape special Lucene characters
+          const escapedWord = word.replace(/[+\-&|!(){}[\]^"~*?:\\/]/g, "\\$&");
+
           const fuzzyResult = await session.run(
             `CALL db.index.fulltext.queryNodes('entity_name_fulltext', $searchTerm)
              YIELD node, score
@@ -782,7 +785,7 @@ export class GraphClient {
              RETURN node, score, count(m) as memoryCount
              ORDER BY score DESC
              LIMIT 10`,
-            { searchTerm: `${word}~`, type },
+            { searchTerm: `${escapedWord}~`, type },
           );
 
           for (const record of fuzzyResult.records) {
