@@ -72,31 +72,38 @@ docker compose up -d
 bun run memory init
 ```
 
-## Usage
+## CLI Commands
 
 ```bash
-# store
-bun run memory "Met John at the conference"
-
-# recall (search)
-bun run memory recall "conference"
-
-# answer (synthesized)
-bun run memory answer "Who did I meet recently?"
-
-# interactive chat
-bun run memory chat
-
-# list recent
-bun run memory list
-
-# resolve duplicates
-bun run memory resolve
-
-# export/import
-bun run memory export backup.json
-bun run memory import backup.json
+bun run memory <text>              # Store a memory
+bun run memory recall <query>      # Search memories (--vector-only, -l limit)
+bun run memory answer <question>   # Synthesized answer (--vector-only, -l limit)
+bun run memory chat                # Interactive chat session
+bun run memory list                # List recent memories (-l limit)
+bun run memory done <query> <summary>  # Mark todo as done
+bun run memory merge <keep> <remove>   # Merge two entities
+bun run memory resolve             # Find/merge duplicate entities
+bun run memory export <file>       # Export memories to JSON
+bun run memory import <file>       # Import memories from JSON
+bun run memory init                # Initialize database schema
 ```
+
+## Chat Commands
+
+Inside `bun run memory chat`:
+
+```
+list                       List recent memories
+recall <query>             Search memories
+remember <text>            Store a new memory
+done <query> | <summary>   Mark todo as done
+merge <keep> <remove>      Merge two entities
+help                       Show help
+exit / quit                Exit chat
+<anything else>            Ask a question (auto-detects intent)
+```
+
+Natural language also works: "mark call John done, I called him" or "show my todos".
 
 ## MCP Server
 
@@ -106,7 +113,30 @@ For Claude integration:
 bun run mcp
 ```
 
-Tools: `remember`, `answer`, `get_entity_history`
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `remember` | Store a memory/fact (`text`) |
+| `answer` | Synthesized answer from memories (`question`, `limit?`, `vectorOnly?`) |
+| `list_todos` | List all open/active todos |
+| `done` | Mark todo as done (`todoQuery`, `resolutionSummary`) |
+| `get_entity_history` | Get entity's current state and version history (`entityName`, `limit?`) |
+| `merge_entities` | Merge two entities (`keepSearch`+`removeSearch` or `keepId`+`removeId`) |
+
+### Claude Desktop Config
+
+```json
+{
+  "mcpServers": {
+    "brainfreeze": {
+      "command": "bun",
+      "args": ["run", "mcp"],
+      "cwd": "/path/to/brainfreeze"
+    }
+  }
+}
+```
 
 ## Architecture
 
