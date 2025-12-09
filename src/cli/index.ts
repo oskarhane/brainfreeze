@@ -297,7 +297,7 @@ program
       console.log(chalk.cyan("\nMemory Chat"));
       console.log(
         chalk.dim(
-          "Commands: list, recall <query>, remember <text>, help, exit\n",
+          "Commands: list, recall <query>, remember <text>, done <query> <summary>, help, exit\n",
         ),
       );
 
@@ -330,11 +330,22 @@ program
         // Handle help
         if (trimmed === "help") {
           console.log(chalk.cyan("\nAvailable commands:"));
-          console.log(chalk.dim("  list              - List recent memories"));
-          console.log(chalk.dim("  recall <query>    - Search memories"));
-          console.log(chalk.dim("  remember <text>   - Store a new memory"));
-          console.log(chalk.dim("  exit / quit       - Exit chat"));
-          console.log(chalk.dim("  <anything else>   - Ask a question\n"));
+          console.log(
+            chalk.dim("  list                       - List recent memories"),
+          );
+          console.log(
+            chalk.dim("  recall <query>             - Search memories"),
+          );
+          console.log(
+            chalk.dim("  remember <text>            - Store a new memory"),
+          );
+          console.log(
+            chalk.dim("  done <query> | <summary>   - Mark todo as done"),
+          );
+          console.log(chalk.dim("  exit / quit                - Exit chat"));
+          console.log(
+            chalk.dim("  <anything else>            - Ask a question\n"),
+          );
           showPrompt();
           return;
         }
@@ -441,9 +452,85 @@ program
           return;
         }
 
-        // Default: treat as question
+        // Handle explicit done command with pipe separator
+        if (trimmed.startsWith("done ") && trimmed.includes("|")) {
+          const rest = trimmed.slice(5).trim();
+          const parts = rest.split("|").map((p) => p.trim());
+
+          if (parts.length !== 2 || !parts[0] || !parts[1]) {
+            console.log(chalk.yellow("\nUsage: done <query> | <summary>\n"));
+            console.log(
+              chalk.dim(
+                "Example: done call John | called and discussed project\n",
+              ),
+            );
+            showPrompt();
+            return;
+          }
+
+          const [query, summary] = parts;
+
+          try {
+            const spinner = createSpinner("Finding todo...").start();
+            const result = await system!.markTodoDone(query, summary);
+            spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
+            console.log(chalk.dim(`  Resolution: ${summary}\n`));
+          } catch (error: any) {
+            console.log(chalk.red(`Error: ${error.message}\n`));
+          }
+          showPrompt();
+          return;
+        }
+
+        // Default: detect intent and handle accordingly
         try {
           const spinner = createSpinner("Thinking...").start();
+
+          // Detect if this is a todo command
+          const intent = await system!.claude.detectIntent(trimmed);
+
+          if (intent.type === "list_todos") {
+            spinner.stop();
+            const todos = await system!.listTodos();
+
+            if (todos.length === 0) {
+              console.log(chalk.yellow("\nYou have no open todos\n"));
+            } else {
+              console.log(
+                chalk.cyan(
+                  `\nYou have ${todos.length} todo${todos.length === 1 ? "" : "s"}:`,
+                ),
+              );
+              todos.forEach((t, i) => {
+                console.log(chalk.blue(`${i + 1}. ${t.summary}`));
+                if (t.content !== t.summary) {
+                  console.log(chalk.dim(`   ${t.content}`));
+                }
+              });
+              console.log();
+            }
+            showPrompt();
+            return;
+          }
+
+          if (intent.type === "mark_done") {
+            spinner.text = "Finding todo...";
+            try {
+              const result = await system!.markTodoDone(
+                intent.query,
+                intent.summary,
+              );
+              spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
+              console.log(chalk.dim(`  Resolution: ${intent.summary}\n`));
+            } catch (error: any) {
+              spinner.fail(chalk.red("Failed"));
+              console.log(chalk.red(`Error: ${error.message}\n`));
+            }
+            showPrompt();
+            return;
+          }
+
+          // Normal question
           const result = await system!.chat(trimmed, session);
           spinner.stop();
 
@@ -667,6 +754,31 @@ program
     } finally {
       if (graph) {
         await graph.close();
+      }
+    }
+  });
+
+// Done command - mark todo as done
+program
+  .command("done")
+  .description("Mark a todo as done/resolved")
+  .argument("<query>", "query to find the todo")
+  .argument("<summary>", "how it was resolved")
+  .action(async (query, summary) => {
+    const spinner = ora("Finding todo...").start();
+    let system: MemorySystem | null = null;
+    try {
+      system = createMemorySystem();
+      const result = await system.markTodoDone(query, summary);
+      spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
+      console.log(chalk.dim(`  Resolution: ${summary}`));
+    } catch (error: any) {
+      spinner.fail(chalk.red("Failed"));
+      console.error(chalk.red(error.message));
+      process.exit(1);
+    } finally {
+      if (system) {
+        await system.close();
       }
     }
   });

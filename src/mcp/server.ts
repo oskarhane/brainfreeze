@@ -57,11 +57,44 @@ server.registerTool(
 );
 
 server.registerTool(
+  "list_todos",
+  {
+    title: "List Open Todos",
+    description: "List all open/active todos (excludes resolved/done todos)",
+    inputSchema: {},
+  },
+  async () => {
+    const system = createMemorySystem();
+    try {
+      const todos = await system.listTodos();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              count: todos.length,
+              todos: todos.map((t) => ({
+                id: t.id,
+                summary: t.summary,
+                content: t.content,
+                timestamp: t.timestamp,
+              })),
+            }),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
+server.registerTool(
   "answer",
   {
     title: "Answer",
     description:
-      "Get a synthesized answer to a question based on stored memories",
+      "Get a synthesized answer to a question based on stored memories (includes all memories, even resolved todos)",
     inputSchema: {
       question: z.string().describe("The question to answer"),
       limit: z
@@ -167,6 +200,53 @@ server.registerTool(
               entity: history.current,
               history: history.history,
               matchScore: candidates[0].score,
+            }),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
+server.registerTool(
+  "done",
+  {
+    title: "Mark Todo Done",
+    description: "Mark a todo as done/resolved with summary",
+    inputSchema: {
+      todoQuery: z
+        .string()
+        .describe("Query to find the todo (e.g., 'call John')"),
+      resolutionSummary: z.string().describe("Summary of how it was resolved"),
+    },
+  },
+  async ({ todoQuery, resolutionSummary }) => {
+    const system = createMemorySystem();
+    try {
+      const result = await system.markTodoDone(todoQuery, resolutionSummary);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              id: result.id,
+              todo: result.summary,
+              resolution: resolutionSummary,
+            }),
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              error: error.message,
             }),
           },
         ],

@@ -59,6 +59,7 @@ export class MemorySystem {
       timestamp: new Date(),
       embedding,
       metadata: extracted.metadata,
+      status: extracted.type === "todo" ? "open" : undefined,
     };
 
     // 5. Store in graph
@@ -83,6 +84,63 @@ export class MemorySystem {
     }
 
     return memory.id;
+  }
+
+  async listTodos(): Promise<Memory[]> {
+    const allMemories = await this.graph.getAllMemories();
+    return allMemories.filter((m) => m.type === "todo" && m.status !== "done");
+  }
+
+  async markTodoDone(
+    todoQuery: string,
+    resolutionSummary: string,
+  ): Promise<{ id: string; summary: string }> {
+    // 1. Find matching todo(s)
+    const embedding = await this.openai.generateEmbedding(todoQuery);
+    const memories = await this.graph.searchByVector(embedding, 10);
+
+    // Filter to open todos only
+    const openTodos = memories.filter(
+      (m) => m.type === "todo" && m.status !== "done",
+    );
+
+    if (openTodos.length === 0) {
+      throw new Error("No matching open todos found");
+    }
+
+    if (openTodos.length > 1) {
+      // Ask Claude to disambiguate
+      const choice = await this.claude.disambiguateTodo(
+        todoQuery,
+        openTodos,
+        resolutionSummary,
+      );
+
+      if (choice === -1) {
+        throw new Error(
+          `Ambiguous: found ${openTodos.length} todos. Be more specific: ${openTodos.map((t, i) => `${i + 1}. ${t.summary}`).join("; ")}`,
+        );
+      }
+
+      const todo = openTodos[choice];
+      if (!todo) {
+        throw new Error("Invalid todo selection");
+      }
+
+      await this.graph.updateTodoStatus(todo.id, "done", resolutionSummary);
+
+      return { id: todo.id, summary: todo.summary };
+    }
+
+    // Single match - mark it done
+    const todo = openTodos[0];
+    if (!todo) {
+      throw new Error("No todo found");
+    }
+
+    await this.graph.updateTodoStatus(todo.id, "done", resolutionSummary);
+
+    return { id: todo.id, summary: todo.summary };
   }
 
   async recall(query: string, limit = 5, useHybrid = true): Promise<Memory[]> {

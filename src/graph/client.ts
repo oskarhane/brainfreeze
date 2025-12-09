@@ -141,6 +141,26 @@ export class GraphClient {
     try {
       await session.executeWrite(async (tx) => {
         // Create memory node
+        const props: Record<string, any> = {
+          id: memory.id,
+          content: memory.content,
+          summary: memory.summary,
+          type: memory.type,
+          timestamp: memory.timestamp.toISOString(),
+          embedding: memory.embedding,
+        };
+
+        // Add todo-specific fields if present
+        if (memory.status) {
+          props.status = memory.status;
+        }
+        if (memory.resolutionSummary) {
+          props.resolutionSummary = memory.resolutionSummary;
+        }
+        if (memory.resolvedAt) {
+          props.resolvedAt = memory.resolvedAt.toISOString();
+        }
+
         await tx.run(
           `CREATE (m:Memory {
             id: $id,
@@ -149,15 +169,11 @@ export class GraphClient {
             type: $type,
             timestamp: datetime($timestamp),
             embedding: $embedding
+            ${memory.status ? ", status: $status" : ""}
+            ${memory.resolutionSummary ? ", resolutionSummary: $resolutionSummary" : ""}
+            ${memory.resolvedAt ? ", resolvedAt: datetime($resolvedAt)" : ""}
           })`,
-          {
-            id: memory.id,
-            content: memory.content,
-            summary: memory.summary,
-            type: memory.type,
-            timestamp: memory.timestamp.toISOString(),
-            embedding: memory.embedding,
-          },
+          props,
         );
 
         // Create entities and memory-entity relationships
@@ -600,7 +616,41 @@ export class GraphClient {
         sentiment: props.sentiment,
         timeOfDay: props.timeOfDay,
       },
+      status: props.status,
+      resolutionSummary: props.resolutionSummary,
+      resolvedAt: props.resolvedAt ? new Date(props.resolvedAt) : undefined,
     };
+  }
+
+  async updateTodoStatus(
+    memoryId: string,
+    status: "open" | "done",
+    resolutionSummary?: string,
+  ): Promise<void> {
+    const session = this.driver.session({ database: this.database });
+    try {
+      await session.executeWrite(async (tx) => {
+        const props: Record<string, any> = { memoryId, status };
+
+        if (resolutionSummary) {
+          props.resolutionSummary = resolutionSummary;
+        }
+
+        if (status === "done") {
+          props.resolvedAt = new Date().toISOString();
+        }
+
+        await tx.run(
+          `MATCH (m:Memory {id: $memoryId})
+           SET m.status = $status
+           ${resolutionSummary ? ", m.resolutionSummary = $resolutionSummary" : ""}
+           ${status === "done" ? ", m.resolvedAt = datetime($resolvedAt)" : ""}`,
+          props,
+        );
+      });
+    } finally {
+      await session.close();
+    }
   }
 
   async getAllMemories(): Promise<Memory[]> {

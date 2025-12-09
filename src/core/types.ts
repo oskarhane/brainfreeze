@@ -6,6 +6,9 @@ export interface Memory {
   timestamp: Date;
   embedding: number[];
   metadata: MemoryMetadata;
+  status?: "open" | "done"; // for todos only
+  resolutionSummary?: string; // for completed todos
+  resolvedAt?: Date; // when todo was marked done
 }
 
 export type MemoryType = "episodic" | "semantic" | "todo" | "reflection";

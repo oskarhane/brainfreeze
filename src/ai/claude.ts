@@ -293,4 +293,138 @@ Type: ${m.type}`,
       return text;
     }
   }
+
+  async disambiguateTodo(
+    query: string,
+    todos: Memory[],
+    resolutionContext: string,
+  ): Promise<number> {
+    const todosText = todos
+      .map(
+        (t, i) =>
+          `${i + 1}. ${t.summary} (created: ${t.timestamp.toISOString()})`,
+      )
+      .join("\n");
+
+    const prompt = `You need to identify which todo the user wants to mark as done.
+
+Query: ${query}
+Resolution context: ${resolutionContext}
+
+Available open todos:
+${todosText}
+
+Return JSON with:
+- selectedIndex: number (1-${todos.length}, or 0 if none match, or -1 if ambiguous)
+- confidence: "high" | "medium" | "low"
+- reasoning: brief explanation
+
+Return only valid JSON, no other text.`;
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 300,
+        temperature: 0.3,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+
+      const content = response.content[0];
+      if (content.type !== "text") {
+        return -1;
+      }
+
+      let jsonStr = content.text.trim();
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr
+          .replace(/```json?\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+      }
+
+      const result = JSON.parse(jsonStr);
+
+      // Return 0-based index, or -1 if ambiguous/none
+      if (
+        result.selectedIndex === 0 ||
+        result.selectedIndex === -1 ||
+        result.confidence !== "high"
+      ) {
+        return -1;
+      }
+
+      return result.selectedIndex - 1; // Convert to 0-based
+    } catch (error: any) {
+      return -1;
+    }
+  }
+
+  async detectIntent(
+    text: string,
+  ): Promise<
+    | { type: "list_todos" }
+    | { type: "mark_done"; query: string; summary: string }
+    | { type: "normal" }
+  > {
+    const prompt = `Analyze if this is a todo-related command:
+
+Text: ${text}
+
+Return JSON with:
+- type: "list_todos" | "mark_done" | "normal"
+- query: (if mark_done) what todo to find
+- summary: (if mark_done) resolution summary
+
+Examples:
+"what todos do i have?" → {"type": "list_todos"}
+"show my todos" → {"type": "list_todos"}
+"what todos are open?" → {"type": "list_todos"}
+"done i bought a computer today" → {"type": "mark_done", "query": "buy computer", "summary": "bought a computer today"}
+"mark done call john" → {"type": "mark_done", "query": "call john", "summary": "completed"}
+"I finished the report" → {"type": "mark_done", "query": "report", "summary": "finished"}
+"hello" → {"type": "normal"}
+"what did I do yesterday" → {"type": "normal"}
+"what todos have i completed" → {"type": "normal"}
+"show completed todos" → {"type": "normal"}
+
+Note: "list_todos" is ONLY for listing OPEN/ACTIVE todos. Questions about completed/resolved todos should be "normal".
+
+Return only valid JSON, no other text.`;
+
+    try {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 200,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      });
+
+      const content = response.content[0];
+      if (content.type !== "text") {
+        return { type: "normal" };
+      }
+
+      let jsonStr = content.text.trim();
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr
+          .replace(/```json?\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+      }
+
+      return JSON.parse(jsonStr);
+    } catch (error: any) {
+      return { type: "normal" };
+    }
+  }
 }
