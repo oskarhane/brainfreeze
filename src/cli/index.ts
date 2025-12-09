@@ -297,7 +297,7 @@ program
       console.log(chalk.cyan("\nMemory Chat"));
       console.log(
         chalk.dim(
-          "Commands: list, recall <query>, remember <text>, done <query> <summary>, help, exit\n",
+          "Commands: list, recall <query>, remember <text>, done <query> <summary>, merge <keep> <remove>, help, exit\n",
         ),
       );
 
@@ -341,6 +341,9 @@ program
           );
           console.log(
             chalk.dim("  done <query> | <summary>   - Mark todo as done"),
+          );
+          console.log(
+            chalk.dim("  merge <keep> <remove>      - Merge two entities"),
           );
           console.log(chalk.dim("  exit / quit                - Exit chat"));
           console.log(
@@ -475,6 +478,162 @@ program
             const result = await system!.markTodoDone(query, summary);
             spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
             console.log(chalk.dim(`  Resolution: ${summary}\n`));
+          } catch (error: any) {
+            console.log(chalk.red(`Error: ${error.message}\n`));
+          }
+          showPrompt();
+          return;
+        }
+
+        // Handle merge
+        if (trimmed.startsWith("merge ")) {
+          const rest = trimmed.slice(6).trim();
+          const parts = rest.split(/\s+/);
+
+          if (parts.length < 2) {
+            console.log(chalk.yellow("\nUsage: merge <keep> <remove>\n"));
+            console.log(chalk.dim('Example: merge John "John Smith"\n'));
+            showPrompt();
+            return;
+          }
+
+          const keepName = parts[0] || "";
+          const removeName = parts.slice(1).join(" ");
+
+          try {
+            const spinner = createSpinner("Finding entities...").start();
+
+            const keepCandidates =
+              await system!.graph.findSimilarEntities(keepName);
+            const removeCandidates =
+              await system!.graph.findSimilarEntities(removeName);
+
+            spinner.stop();
+
+            if (keepCandidates.length === 0) {
+              console.log(
+                chalk.red(`No entities found matching: "${keepName}"\n`),
+              );
+              showPrompt();
+              return;
+            }
+
+            if (removeCandidates.length === 0) {
+              console.log(
+                chalk.red(`No entities found matching: "${removeName}"\n`),
+              );
+              showPrompt();
+              return;
+            }
+
+            // Select keep entity
+            let keepEntity = keepCandidates[0];
+            if (keepCandidates.length > 1) {
+              console.log(
+                chalk.yellow(`\nMultiple matches for "${keepName}":`),
+              );
+              keepCandidates.forEach((c, i) => {
+                console.log(
+                  chalk.dim(
+                    `  ${i + 1}. ${c.entity.name} (${c.entity.type}) - ${c.memoryCount} memories`,
+                  ),
+                );
+              });
+
+              const choice = await new Promise<string>((resolve) => {
+                rl.question(chalk.green("Which one to keep? "), resolve);
+              });
+
+              const choiceNum = parseInt(choice);
+              if (
+                isNaN(choiceNum) ||
+                choiceNum < 1 ||
+                choiceNum > keepCandidates.length
+              ) {
+                console.log(chalk.red("Invalid selection\n"));
+                showPrompt();
+                return;
+              }
+
+              keepEntity = keepCandidates[choiceNum - 1];
+            }
+
+            // Select remove entity
+            let removeEntity = removeCandidates[0];
+            if (removeCandidates.length > 1) {
+              console.log(
+                chalk.yellow(`\nMultiple matches for "${removeName}":`),
+              );
+              removeCandidates.forEach((c, i) => {
+                console.log(
+                  chalk.dim(
+                    `  ${i + 1}. ${c.entity.name} (${c.entity.type}) - ${c.memoryCount} memories`,
+                  ),
+                );
+              });
+
+              const choice = await new Promise<string>((resolve) => {
+                rl.question(chalk.green("Which one to remove? "), resolve);
+              });
+
+              const choiceNum = parseInt(choice);
+              if (
+                isNaN(choiceNum) ||
+                choiceNum < 1 ||
+                choiceNum > removeCandidates.length
+              ) {
+                console.log(chalk.red("Invalid selection\n"));
+                showPrompt();
+                return;
+              }
+
+              removeEntity = removeCandidates[choiceNum - 1];
+            }
+
+            if (!keepEntity || !removeEntity) {
+              console.log(chalk.red("Entity selection failed\n"));
+              showPrompt();
+              return;
+            }
+
+            if (keepEntity.entity.id === removeEntity.entity.id) {
+              console.log(chalk.red("Cannot merge entity with itself\n"));
+              showPrompt();
+              return;
+            }
+
+            console.log(chalk.yellow("\nMerge preview:"));
+            console.log(
+              chalk.green(
+                `  Keep:   ${keepEntity.entity.name} (${keepEntity.entity.type}) - ${keepEntity.memoryCount} memories`,
+              ),
+            );
+            console.log(
+              chalk.red(
+                `  Remove: ${removeEntity.entity.name} (${removeEntity.entity.type}) - ${removeEntity.memoryCount} memories`,
+              ),
+            );
+
+            const answer = await new Promise<string>((resolve) => {
+              rl.question(chalk.green("\nConfirm merge? (y/n): "), resolve);
+            });
+
+            if (answer.toLowerCase() !== "y") {
+              console.log(chalk.dim("Cancelled\n"));
+              showPrompt();
+              return;
+            }
+
+            const mergeSpinner = createSpinner("Merging...").start();
+            await system!.graph.mergeEntities(
+              keepEntity.entity.id,
+              removeEntity.entity.id,
+            );
+            mergeSpinner.succeed(
+              chalk.green(
+                `Merged "${removeEntity.entity.name}" into "${keepEntity.entity.name}"\n`,
+              ),
+            );
           } catch (error: any) {
             console.log(chalk.red(`Error: ${error.message}\n`));
           }
@@ -651,6 +810,156 @@ program
     } finally {
       if (system) {
         await system.close();
+      }
+    }
+  });
+
+// Merge command - manually merge two entities
+program
+  .command("merge")
+  .description("Manually merge two entities")
+  .argument("<keep>", "search string for entity to keep")
+  .argument("<remove>", "search string for entity to merge into keep")
+  .action(async (keepName, removeName) => {
+    const spinner = ora("Finding entities...").start();
+    let graph: GraphClient | null = null;
+    try {
+      const config = loadConfig();
+      graph = new GraphClient(
+        config.neo4j.uri,
+        config.neo4j.user,
+        config.neo4j.password,
+        config.neo4j.database,
+      );
+
+      // Find both entities
+      const keepCandidates = await graph.findSimilarEntities(keepName);
+      const removeCandidates = await graph.findSimilarEntities(removeName);
+
+      spinner.stop();
+
+      if (keepCandidates.length === 0) {
+        console.log(chalk.red(`No entities found matching: "${keepName}"`));
+        process.exit(1);
+      }
+
+      if (removeCandidates.length === 0) {
+        console.log(chalk.red(`No entities found matching: "${removeName}"`));
+        process.exit(1);
+      }
+
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      // Select keep entity if multiple matches
+      let keepEntity = keepCandidates[0];
+      if (keepCandidates.length > 1) {
+        console.log(chalk.yellow(`\nMultiple matches for "${keepName}":`));
+        keepCandidates.forEach((c, i) => {
+          console.log(
+            chalk.dim(
+              `  ${i + 1}. ${c.entity.name} (${c.entity.type}) - ${c.memoryCount} memories`,
+            ),
+          );
+        });
+
+        const choice = await new Promise<string>((resolve) => {
+          rl.question(chalk.green("Which one to keep? "), resolve);
+        });
+
+        const choiceNum = parseInt(choice);
+        if (
+          isNaN(choiceNum) ||
+          choiceNum < 1 ||
+          choiceNum > keepCandidates.length
+        ) {
+          console.log(chalk.red("Invalid selection"));
+          rl.close();
+          process.exit(1);
+        }
+
+        keepEntity = keepCandidates[choiceNum - 1];
+      }
+
+      // Select remove entity if multiple matches
+      let removeEntity = removeCandidates[0];
+      if (removeCandidates.length > 1) {
+        console.log(chalk.yellow(`\nMultiple matches for "${removeName}":`));
+        removeCandidates.forEach((c, i) => {
+          console.log(
+            chalk.dim(
+              `  ${i + 1}. ${c.entity.name} (${c.entity.type}) - ${c.memoryCount} memories`,
+            ),
+          );
+        });
+
+        const choice = await new Promise<string>((resolve) => {
+          rl.question(chalk.green("Which one to remove? "), resolve);
+        });
+
+        const choiceNum = parseInt(choice);
+        if (
+          isNaN(choiceNum) ||
+          choiceNum < 1 ||
+          choiceNum > removeCandidates.length
+        ) {
+          console.log(chalk.red("Invalid selection"));
+          rl.close();
+          process.exit(1);
+        }
+
+        removeEntity = removeCandidates[choiceNum - 1];
+      }
+
+      if (!keepEntity || !removeEntity) {
+        console.log(chalk.red("Entity selection failed"));
+        rl.close();
+        process.exit(1);
+      }
+
+      if (keepEntity.entity.id === removeEntity.entity.id) {
+        console.log(chalk.red("Cannot merge entity with itself"));
+        rl.close();
+        process.exit(1);
+      }
+
+      console.log(chalk.yellow("\nMerge preview:"));
+      console.log(
+        chalk.green(
+          `  Keep:   ${keepEntity.entity.name} (${keepEntity.entity.type}) - ${keepEntity.memoryCount} memories`,
+        ),
+      );
+      console.log(
+        chalk.red(
+          `  Remove: ${removeEntity.entity.name} (${removeEntity.entity.type}) - ${removeEntity.memoryCount} memories`,
+        ),
+      );
+
+      const answer = await new Promise<string>((resolve) => {
+        rl.question(chalk.green("\nConfirm merge? (y/n): "), resolve);
+      });
+      rl.close();
+
+      if (answer.toLowerCase() !== "y") {
+        console.log(chalk.dim("Cancelled"));
+        process.exit(0);
+      }
+
+      const mergeSpinner = ora("Merging...").start();
+      await graph.mergeEntities(keepEntity.entity.id, removeEntity.entity.id);
+      mergeSpinner.succeed(
+        chalk.green(
+          `Merged "${removeEntity.entity.name}" into "${keepEntity.entity.name}"`,
+        ),
+      );
+    } catch (error: any) {
+      console.error(chalk.red(`Failed: ${error.message}`));
+      process.exit(1);
+    } finally {
+      if (graph) {
+        await graph.close();
       }
     }
   });

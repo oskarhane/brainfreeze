@@ -257,6 +257,188 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "merge_entities",
+  {
+    title: "Merge Entities",
+    description:
+      "Merge two entities by search string. Returns candidates if multiple matches, requires keepId and removeId to confirm.",
+    inputSchema: {
+      keepSearch: z
+        .string()
+        .optional()
+        .describe("Search string for entity to keep"),
+      removeSearch: z
+        .string()
+        .optional()
+        .describe("Search string for entity to remove"),
+      keepId: z.string().optional().describe("Confirmed entity ID to keep"),
+      removeId: z.string().optional().describe("Confirmed entity ID to remove"),
+    },
+  },
+  async ({ keepSearch, removeSearch, keepId, removeId }) => {
+    const system = createMemorySystem();
+    try {
+      // If IDs provided, do the merge
+      if (keepId && removeId) {
+        if (keepId === removeId) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: false,
+                  error: "Cannot merge entity with itself",
+                }),
+              },
+            ],
+          };
+        }
+
+        await system.graph.mergeEntities(keepId, removeId);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: true,
+                message: "Entities merged successfully",
+              }),
+            },
+          ],
+        };
+      }
+
+      // Otherwise, search and return candidates
+      if (!keepSearch || !removeSearch) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                error:
+                  "Provide either (keepSearch + removeSearch) or (keepId + removeId)",
+              }),
+            },
+          ],
+        };
+      }
+
+      const keepCandidates = await system.graph.findSimilarEntities(keepSearch);
+      const removeCandidates =
+        await system.graph.findSimilarEntities(removeSearch);
+
+      if (keepCandidates.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                error: `No entities found matching: "${keepSearch}"`,
+              }),
+            },
+          ],
+        };
+      }
+
+      if (removeCandidates.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                error: `No entities found matching: "${removeSearch}"`,
+              }),
+            },
+          ],
+        };
+      }
+
+      // If both have single matches, auto-merge
+      if (keepCandidates.length === 1 && removeCandidates.length === 1) {
+        const keep = keepCandidates[0];
+        const remove = removeCandidates[0];
+
+        if (!keep || !remove) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: false,
+                  error: "Entity lookup failed",
+                }),
+              },
+            ],
+          };
+        }
+
+        if (keep.entity.id === remove.entity.id) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: false,
+                  error: "Cannot merge entity with itself",
+                }),
+              },
+            ],
+          };
+        }
+
+        await system.graph.mergeEntities(keep.entity.id, remove.entity.id);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: true,
+                merged: {
+                  keep: keep.entity.name,
+                  removed: remove.entity.name,
+                },
+              }),
+            },
+          ],
+        };
+      }
+
+      // Return candidates for user to select
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              requiresSelection: true,
+              keepCandidates: keepCandidates.map((c) => ({
+                id: c.entity.id,
+                name: c.entity.name,
+                type: c.entity.type,
+                memoryCount: c.memoryCount,
+              })),
+              removeCandidates: removeCandidates.map((c) => ({
+                id: c.entity.id,
+                name: c.entity.name,
+                type: c.entity.type,
+                memoryCount: c.memoryCount,
+              })),
+              message:
+                "Multiple matches found. Call again with keepId and removeId to confirm merge.",
+            }),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
