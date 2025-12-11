@@ -650,9 +650,21 @@ program
             spinner.stop();
             const todos = await system!.listTodos();
 
+            // Add to session history so references work
+            session.addUserMessage(trimmed);
+
+            let responseText: string;
             if (todos.length === 0) {
-              console.log(chalk.yellow("\nYou have no open todos\n"));
+              responseText = "You have no open todos";
+              console.log(chalk.yellow(`\n${responseText}\n`));
             } else {
+              const todoList = todos.map((t, i) => {
+                const num = `${i + 1}`;
+                return `${num}. ${t.summary}${t.content !== t.summary ? `\n   ${t.content}` : ''}`;
+              }).join('\n');
+
+              responseText = `You have ${todos.length} todo${todos.length === 1 ? "" : "s"}:\n${todoList}`;
+
               console.log(
                 chalk.cyan(
                   `\nYou have ${todos.length} todo${todos.length === 1 ? "" : "s"}:`,
@@ -666,22 +678,41 @@ program
               });
               console.log();
             }
+
+            // Add assistant response to session
+            session.addAssistantMessage(responseText, todos);
+
             showPrompt();
             return;
           }
 
           if (intent.type === "mark_done") {
-            spinner.text = "Finding todo...";
+            // Add user message to session first
+            session.addUserMessage(trimmed);
+
+            spinner.text = "Resolving reference...";
             try {
+              // Resolve references like "that one" using conversation history
+              const history = session.getFormattedHistory();
+              const resolvedQuery = await system!.resolveReference(intent.query, history);
+
+              spinner.text = "Finding todo...";
               const result = await system!.markTodoDone(
-                intent.query,
+                resolvedQuery,
                 intent.summary,
               );
               spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
               console.log(chalk.dim(`  Resolution: ${intent.summary}\n`));
+
+              // Add to session history
+              const responseText = `Marked todo as done: ${result.summary}`;
+              session.addAssistantMessage(responseText, []);
             } catch (error: any) {
               spinner.fail(chalk.red("Failed"));
               console.log(chalk.red(`Error: ${error.message}\n`));
+
+              // Add error to session
+              session.addAssistantMessage(`Failed to mark todo as done: ${error.message}`, []);
             }
             showPrompt();
             return;

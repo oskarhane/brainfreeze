@@ -154,7 +154,7 @@ export class MemoryAgent {
     }
 
     // 3. Mark as done
-    await this.graph.markTodoDone(selectedTodo!.id, resolutionSummary);
+    await this.graph.updateTodoStatus(selectedTodo!.id, 'done', resolutionSummary);
 
     return {
       id: selectedTodo!.id,

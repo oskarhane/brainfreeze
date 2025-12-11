@@ -193,6 +193,10 @@ export class MemorySystem {
     return result;
   }
 
+  async resolveReference(text: string, conversationHistory: string): Promise<string> {
+    return this.memoryAgent.resolveReferences(text, conversationHistory);
+  }
+
   async detectIntent(
     text: string,
   ): Promise<
