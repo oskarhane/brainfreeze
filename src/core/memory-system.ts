@@ -8,13 +8,20 @@ import type {
   EntityDisambiguation,
 } from "./types";
 import type { ChatSession } from "./chat-session";
+import { IntentAgent, type Intent } from "../agents/intent-agent";
+import type { LanguageModel } from "ai";
 
 export class MemorySystem {
+  private intentAgent: IntentAgent;
+
   constructor(
     public graph: GraphClient,
     private claude: ClaudeClient,
     private openai: OpenAIClient,
-  ) {}
+    private claudeModel: LanguageModel<any>,
+  ) {
+    this.intentAgent = new IntentAgent(claudeModel);
+  }
 
   async remember(text: string): Promise<string> {
     // 1. Extract entities & metadata via Claude
@@ -386,6 +393,28 @@ export class MemorySystem {
     session.addAssistantMessage(result.answer, result.sources);
 
     return result;
+  }
+
+  async detectIntent(
+    text: string,
+  ): Promise<
+    | { type: "list_todos" }
+    | { type: "mark_done"; query: string; summary: string }
+    | { type: "normal" }
+  > {
+    const intent = await this.intentAgent.detectIntent(text);
+
+    // Map new intent format to old format for backwards compatibility
+    switch (intent.intent) {
+      case 'todo_list':
+        return { type: 'list_todos' };
+      case 'todo_mark_done':
+        return { type: 'mark_done', query: intent.query, summary: intent.summary };
+      case 'remember':
+      case 'retrieve':
+      default:
+        return { type: 'normal' };
+    }
   }
 
   async close(): Promise<void> {

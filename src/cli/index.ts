@@ -135,7 +135,7 @@ async function promptDisambiguation(
   });
 }
 
-function createMemorySystem() {
+async function createMemorySystem() {
   const config = loadConfig();
   const graph = new GraphClient(
     config.neo4j.uri,
@@ -148,7 +148,11 @@ function createMemorySystem() {
     config.anthropic.model,
   );
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
-  return new MemorySystem(graph, claude, openai);
+
+  const { createClaudeModel } = await import('../agents/providers');
+  const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+
+  return new MemorySystem(graph, claude, openai, claudeModel);
 }
 
 program
@@ -646,7 +650,7 @@ program
           const spinner = createSpinner("Thinking...").start();
 
           // Detect if this is a todo command
-          const intent = await system!.claude.detectIntent(trimmed);
+          const intent = await system!.detectIntent(trimmed);
 
           if (intent.type === "list_todos") {
             spinner.stop();

@@ -8,7 +8,7 @@ import { GraphClient } from "../graph/client";
 import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 
-function createMemorySystem(): MemorySystem {
+async function createMemorySystem(): Promise<MemorySystem> {
   const config = loadConfig();
   const graph = new GraphClient(
     config.neo4j.uri,
@@ -21,7 +21,11 @@ function createMemorySystem(): MemorySystem {
     config.anthropic.model,
   );
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
-  return new MemorySystem(graph, claude, openai);
+
+  const { createClaudeModel } = await import('../agents/providers');
+  const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+
+  return new MemorySystem(graph, claude, openai, claudeModel);
 }
 
 const server = new McpServer({
@@ -39,7 +43,7 @@ server.registerTool(
     },
   },
   async ({ text }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const id = await system.remember(text);
       return {
@@ -64,7 +68,7 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const todos = await system.listTodos();
       return {
@@ -110,7 +114,7 @@ server.registerTool(
     },
   },
   async ({ question, limit, vectorOnly }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const result = await system.answer(
         question,
@@ -153,7 +157,7 @@ server.registerTool(
     },
   },
   async ({ entityName, limit }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       // Find entity
       const candidates = await system.graph.findSimilarEntities(entityName);
@@ -223,7 +227,7 @@ server.registerTool(
     },
   },
   async ({ todoQuery, resolutionSummary }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const result = await system.markTodoDone(todoQuery, resolutionSummary);
       return {
@@ -277,7 +281,7 @@ server.registerTool(
     },
   },
   async ({ keepSearch, removeSearch, keepId, removeId }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       // If IDs provided, do the merge
       if (keepId && removeId) {

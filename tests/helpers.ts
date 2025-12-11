@@ -20,7 +20,7 @@ export async function loadTestEnv() {
   }
 }
 
-export function createTestMemorySystem(): MemorySystem {
+export async function createTestMemorySystem(): Promise<MemorySystem> {
   const config = loadConfig();
   const graph = new GraphClient(
     config.neo4j.uri,
@@ -31,7 +31,10 @@ export function createTestMemorySystem(): MemorySystem {
   const claude = new ClaudeClient(config.anthropic.apiKey, config.anthropic.model);
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
 
-  return new MemorySystem(graph, claude, openai);
+  const { createClaudeModel } = await import('../src/agents/providers');
+  const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+
+  return new MemorySystem(graph, claude, openai, claudeModel);
 }
 
 export async function setupTestDatabase() {
