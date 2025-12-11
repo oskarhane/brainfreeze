@@ -3,17 +3,14 @@ import { z } from 'zod';
 import type { LanguageModel } from 'ai';
 import { withRetry } from './utils/retry';
 
-// Intent schema - discriminated union for different intent types
-const intentSchema = z.discriminatedUnion('intent', [
-  z.object({ intent: z.literal('remember'), text: z.string() }),
-  z.object({ intent: z.literal('todo_list') }),
-  z.object({
-    intent: z.literal('todo_mark_done'),
-    query: z.string(),
-    summary: z.string(),
-  }),
-  z.object({ intent: z.literal('retrieve'), question: z.string() }),
-]);
+// Intent schema - simple object with intent type and optional fields
+const intentSchema = z.object({
+  intent: z.enum(['remember', 'todo_list', 'todo_mark_done', 'retrieve']),
+  text: z.string().optional(),
+  query: z.string().optional(),
+  summary: z.string().optional(),
+  question: z.string().optional(),
+});
 
 export type Intent = z.infer<typeof intentSchema>;
 
@@ -25,7 +22,8 @@ export class IntentAgent {
       const result = await generateObject({
         model: this.model,
         schema: intentSchema,
-        mode: 'json',
+        schemaName: 'intent',
+        schemaDescription: 'User intent classification',
         prompt: `Analyze if this is a todo-related command or a question:
 
 Text: ${text}
