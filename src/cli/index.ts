@@ -290,7 +290,7 @@ program
     const session = new ChatSession();
 
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
 
       console.log(chalk.cyan("\nMemory Chat"));
       console.log(
