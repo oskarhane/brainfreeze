@@ -9,10 +9,12 @@ import type {
 } from "./types";
 import type { ChatSession } from "./chat-session";
 import { IntentAgent, type Intent } from "../agents/intent-agent";
+import { RetrieveAgent } from "../agents/retrieve-agent";
 import type { LanguageModel } from "ai";
 
 export class MemorySystem {
   private intentAgent: IntentAgent;
+  private retrieveAgent: RetrieveAgent;
 
   constructor(
     public graph: GraphClient,
@@ -21,6 +23,7 @@ export class MemorySystem {
     private claudeModel: LanguageModel<any>,
   ) {
     this.intentAgent = new IntentAgent(claudeModel);
+    this.retrieveAgent = new RetrieveAgent(claudeModel);
   }
 
   async remember(text: string): Promise<string> {
@@ -176,15 +179,13 @@ export class MemorySystem {
     // 2. Get relevant entities
     const entities = await this.graph.getAllEntities();
 
-    // 3. Synthesize answer - use chat method if history provided
-    const result = conversationHistory
-      ? await this.claude.chatAnswer(
-          question,
-          memories,
-          conversationHistory,
-          entities,
-        )
-      : await this.claude.synthesizeAnswer(question, memories, entities);
+    // 3. Synthesize answer using RetrieveAgent
+    const result = await this.retrieveAgent.synthesizeAnswer(
+      question,
+      memories,
+      entities,
+      conversationHistory,
+    );
 
     // 4. Filter to only memories that were actually used
     const usedMemories = result.usedMemoryIndices
