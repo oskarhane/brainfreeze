@@ -47,7 +47,7 @@ const extractedMemorySchema = z.object({
     .optional(),
   temporal: z.object({
     references: z.array(z.string()),
-    timeOfDay: z.enum(['morning', 'afternoon', 'evening']).optional(),
+    timeOfDay: z.enum(['morning', 'afternoon', 'evening']).nullish(),
   }),
   metadata: z.object({
     location: z.string().optional(),

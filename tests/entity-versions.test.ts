@@ -23,7 +23,7 @@ describe("Entity Property Updates and Version History", () => {
   beforeAll(async () => {
     await loadTestEnv();
     await setupTestDatabase();
-    system = createTestMemorySystem();
+    system = await createTestMemorySystem();
     graph = system.graph;
   });
 

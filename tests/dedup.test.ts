@@ -25,7 +25,7 @@ describe("Entity Deduplication", () => {
   beforeAll(async () => {
     await loadTestEnv();
     await setupTestDatabase();
-    system = createTestMemorySystem();
+    system = await createTestMemorySystem();
 
     const config = loadConfig();
     graph = new GraphClient(
