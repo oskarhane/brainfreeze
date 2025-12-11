@@ -25,6 +25,7 @@ export class IntentAgent {
       const result = await generateObject({
         model: this.model,
         schema: intentSchema,
+        mode: 'json',
         prompt: `Analyze if this is a todo-related command or a question:
 
 Text: ${text}
