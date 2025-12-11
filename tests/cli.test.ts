@@ -42,6 +42,16 @@ describe('CLI Integration', () => {
       expect(output).toContain('Memory Chat');
     });
 
+    test('should handle general questions', async () => {
+      const result = await $`echo "hello" | bun run src/cli/index.ts chat`.nothrow();
+
+      expect(result.exitCode).toBe(0);
+
+      const output = result.stdout.toString();
+      // Should get some response, not an error
+      expect(output).not.toContain('Error:');
+    });
+
     test('should handle exit command', async () => {
       const result = await $`echo "exit" | bun run src/cli/index.ts chat`.quiet().nothrow();
 
