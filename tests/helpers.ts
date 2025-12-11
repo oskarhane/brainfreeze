@@ -1,7 +1,6 @@
 import { $ } from 'bun';
 import { loadConfig } from '../src/core/config';
 import { GraphClient } from '../src/graph/client';
-import { ClaudeClient } from '../src/ai/claude';
 import { OpenAIClient } from '../src/ai/openai';
 import { MemorySystem } from '../src/core/memory-system';
 
@@ -28,13 +27,12 @@ export async function createTestMemorySystem(): Promise<MemorySystem> {
     config.neo4j.password,
     config.neo4j.database
   );
-  const claude = new ClaudeClient(config.anthropic.apiKey, config.anthropic.model);
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
 
   const { createClaudeModel } = await import('../src/agents/providers');
   const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
 
-  return new MemorySystem(graph, claude, openai, claudeModel);
+  return new MemorySystem(graph, openai, claudeModel);
 }
 
 export async function setupTestDatabase() {

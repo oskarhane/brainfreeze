@@ -1,5 +1,4 @@
 import { GraphClient } from "../graph/client";
-import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 import type {
   Memory,
@@ -20,7 +19,6 @@ export class MemorySystem {
 
   constructor(
     public graph: GraphClient,
-    private claude: ClaudeClient,
     private openai: OpenAIClient,
     private claudeModel: LanguageModel<any>,
   ) {

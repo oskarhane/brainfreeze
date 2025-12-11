@@ -6,10 +6,8 @@ import * as readline from "readline";
 import { loadConfig } from "../core/config";
 import { MemorySystem } from "../core/memory-system";
 import { GraphClient } from "../graph/client";
-import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 import { ChatSession } from "../core/chat-session";
-import { EntityResolver } from "../core/entity-resolver";
 import type { EntityDisambiguation } from "../core/types";
 
 const program = new Command();
@@ -143,16 +141,12 @@ async function createMemorySystem() {
     config.neo4j.password,
     config.neo4j.database,
   );
-  const claude = new ClaudeClient(
-    config.anthropic.apiKey,
-    config.anthropic.model,
-  );
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
 
   const { createClaudeModel } = await import('../agents/providers');
   const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
 
-  return new MemorySystem(graph, claude, openai, claudeModel);
+  return new MemorySystem(graph, openai, claudeModel);
 }
 
 program
@@ -969,6 +963,8 @@ program
   });
 
 // Resolve command - find and merge duplicate entities
+// TODO: Re-implement resolve command with agents
+/*
 program
   .command("resolve")
   .description("Find and merge duplicate entities")
@@ -1070,6 +1066,7 @@ program
       }
     }
   });
+*/
 
 // Done command - mark todo as done
 program

@@ -5,7 +5,6 @@ import { z } from "zod/v4";
 import { loadConfig } from "../core/config";
 import { MemorySystem } from "../core/memory-system";
 import { GraphClient } from "../graph/client";
-import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 
 async function createMemorySystem(): Promise<MemorySystem> {
@@ -16,16 +15,12 @@ async function createMemorySystem(): Promise<MemorySystem> {
     config.neo4j.password,
     config.neo4j.database,
   );
-  const claude = new ClaudeClient(
-    config.anthropic.apiKey,
-    config.anthropic.model,
-  );
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
 
   const { createClaudeModel } = await import('../agents/providers');
   const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
 
-  return new MemorySystem(graph, claude, openai, claudeModel);
+  return new MemorySystem(graph, openai, claudeModel);
 }
 
 const server = new McpServer({
