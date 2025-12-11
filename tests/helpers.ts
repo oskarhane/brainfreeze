@@ -38,11 +38,11 @@ export async function createTestMemorySystem(): Promise<MemorySystem> {
 export async function setupTestDatabase() {
   console.log('Setting up test database...');
 
-  // Check if Neo4j is running
+  // Check if Neo4j is running (docker maps 7475:7474)
   try {
-    await fetch('http://localhost:7474');
+    await fetch('http://localhost:7475');
   } catch (error) {
-    throw new Error('Neo4j is not running at localhost:7474. Start with: docker compose up -d');
+    throw new Error('Neo4j is not running at localhost:7475. Start with: docker compose up -d');
   }
 
   await loadTestEnv();

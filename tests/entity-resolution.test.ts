@@ -11,7 +11,6 @@ import {
 setDefaultTimeout(60000);
 
 import { GraphClient } from "../src/graph/client";
-import { ClaudeClient } from "../src/ai/claude";
 import { OpenAIClient } from "../src/ai/openai";
 import { MemorySystem } from "../src/core/memory-system";
 import { loadConfig } from "../src/core/config";
@@ -21,7 +20,6 @@ const TEST_SUFFIX = `X${Date.now().toString().slice(-6)}`;
 
 describe("Entity Resolution", () => {
   let graph: GraphClient;
-  let claude: ClaudeClient;
   let openai: OpenAIClient;
   let system: MemorySystem;
 
@@ -33,11 +31,14 @@ describe("Entity Resolution", () => {
       config.neo4j.password,
       config.neo4j.database,
     );
-    claude = new ClaudeClient(config.anthropic.apiKey, config.anthropic.model);
-    openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
-    system = new MemorySystem(graph, claude, openai);
-
     await graph.initSchema();
+
+    openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
+
+    const { createClaudeModel } = await import('../src/agents/providers');
+    const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+
+    system = new MemorySystem(graph, openai, claudeModel);
   });
 
   afterAll(async () => {
