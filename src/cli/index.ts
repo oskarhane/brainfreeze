@@ -159,7 +159,7 @@ program.argument("<text>", "text to remember").action(async (text) => {
   const spinner = ora("Processing...").start();
   let system: MemorySystem | null = null;
   try {
-    system = createMemorySystem();
+    system = await createMemorySystem();
 
     // Prepare memory and check for disambiguation needs
     const { extracted, embedding, disambiguations } =
@@ -208,7 +208,7 @@ program
     ).start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const memories = await system.recall(
         query,
         parseInt(opts.limit),
@@ -254,7 +254,7 @@ program
     const spinner = ora("Thinking...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const result = await system.answer(
         question,
         parseInt(opts.limit),
@@ -739,7 +739,7 @@ program
     const spinner = ora("Loading memories...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const memories = await system.listRecent(parseInt(opts.limit));
       spinner.succeed(chalk.green(`Found ${memories.length}`));
 
@@ -775,7 +775,7 @@ program
     const spinner = ora("Exporting memories...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const count = await system.exportMemories(file);
       spinner.succeed(chalk.green(`Exported ${count} memories to ${file}`));
     } catch (error: any) {
@@ -798,7 +798,7 @@ program
     const spinner = ora("Importing memories...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const count = await system.importMemories(file);
       spinner.succeed(chalk.green(`Imported ${count} memories`));
     } catch (error: any) {
@@ -1078,7 +1078,7 @@ program
     const spinner = ora("Finding todo...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const result = await system.markTodoDone(query, summary);
       spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
       console.log(chalk.dim(`  Resolution: ${summary}`));
