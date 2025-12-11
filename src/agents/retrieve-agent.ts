@@ -91,6 +91,7 @@ Instructions:
       const result = await generateObject({
         model: this.model,
         schema: answerSchema,
+        mode: 'json',
         prompt,
         temperature: 0.5,
       });

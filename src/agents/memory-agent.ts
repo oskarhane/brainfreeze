@@ -69,6 +69,7 @@ export class MemoryAgent {
       const result = await generateObject({
         model: this.model,
         schema: extractedMemorySchema,
+        mode: 'json',
         prompt: EXTRACTION_PROMPT.replace('{TEXT}', text),
         temperature: 0.3,
       });
@@ -179,6 +180,7 @@ Return the number (1-${todos.length}) of the best matching todo.`;
       const response = await generateObject({
         model: this.model,
         schema: z.object({ selectedIndex: z.number().min(1).max(todos.length) }),
+        mode: 'json',
         prompt,
         temperature: 0.2,
       });
@@ -285,6 +287,7 @@ Return the number (1-${todos.length}) of the best matching todo.`;
           confidence: z.enum(['high', 'medium', 'low']),
           reasoning: z.string(),
         }),
+        mode: 'json',
         prompt,
         temperature: 0.2,
       });
