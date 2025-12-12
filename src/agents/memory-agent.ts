@@ -96,6 +96,10 @@ export class MemoryAgent {
         } else if (candidates.length > 1) {
           // Ambiguous - log warning
           console.warn(`Ambiguous entity for property update: ${update.entityName}`);
+        } else if (candidates.length === 0) {
+          console.warn(`No matching entity found for property update: ${update.entityName}`);
+        } else {
+          console.warn(`Low confidence match (score=${candidates[0]?.score}) for: ${update.entityName}`);
         }
       }
     }

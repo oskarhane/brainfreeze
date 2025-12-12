@@ -929,12 +929,19 @@ export class GraphClient {
 
       return result.records.map((record: any) => {
         const node = record.get("e");
+        const propertiesJson = node.properties.properties;
+        const parsedProperties = propertiesJson
+          ? (typeof propertiesJson === "string" ? JSON.parse(propertiesJson) : propertiesJson)
+          : undefined;
+
         return {
           entity: {
             id: node.properties.id,
             name: node.properties.name,
             type: node.properties.type,
+            normalizedName: node.properties.normalizedName,
             aliases: node.properties.aliases || [],
+            properties: parsedProperties,
           },
           memoryCount: record.get("memoryCount").toNumber(),
         };

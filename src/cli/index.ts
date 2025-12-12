@@ -718,6 +718,31 @@ program
             return;
           }
 
+          if (intent.type === "remember") {
+            // Add user message to session first
+            session.addUserMessage(trimmed);
+
+            spinner.text = "Processing...";
+            try {
+              spinner.text = "Storing...";
+              // Remember with conversation context for reference resolution
+              const memoryId = await system!.rememberWithContext(intent.text, session);
+              spinner.succeed(chalk.green(`Stored: ${memoryId.slice(0, 8)}...\n`));
+
+              // Add to session history
+              const responseText = `Stored memory: ${intent.text}`;
+              session.addAssistantMessage(responseText, []);
+            } catch (error: any) {
+              spinner.fail(chalk.red("Failed"));
+              console.log(chalk.red(`Error: ${error.message}\n`));
+
+              // Add error to session
+              session.addAssistantMessage(`Failed to store memory: ${error.message}`, []);
+            }
+            showPrompt();
+            return;
+          }
+
           // Normal question
           const result = await system!.chat(trimmed, session);
           spinner.stop();

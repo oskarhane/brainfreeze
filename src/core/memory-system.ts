@@ -202,6 +202,7 @@ export class MemorySystem {
   ): Promise<
     | { type: "list_todos" }
     | { type: "mark_done"; query: string; summary: string }
+    | { type: "remember"; text: string }
     | { type: "normal" }
   > {
     const intent = await this.intentAgent.detectIntent(text);
@@ -211,8 +212,9 @@ export class MemorySystem {
       case 'todo_list':
         return { type: 'list_todos' };
       case 'todo_mark_done':
-        return { type: 'mark_done', query: intent.query, summary: intent.summary };
+        return { type: 'mark_done', query: intent.query!, summary: intent.summary! };
       case 'remember':
+        return { type: 'remember', text: intent.text! };
       case 'retrieve':
       default:
         return { type: 'normal' };
