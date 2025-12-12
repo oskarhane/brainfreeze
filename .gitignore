@@ -36,4 +36,5 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 # Test artifacts
-tests/test-export.json
+tests/test-export*.json
+test-export*.json
