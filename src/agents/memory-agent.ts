@@ -341,6 +341,34 @@ Return the number (1-${todos.length}) of the best matching todo.`;
       entityResolutions,
     );
 
+    // Handle property updates (add fullName as alias)
+    if (extracted.propertyUpdates && extracted.propertyUpdates.length > 0) {
+      for (const update of extracted.propertyUpdates) {
+        const candidates = await this.graph.findSimilarEntities(update.entityName);
+
+        if (candidates.length > 0 && candidates[0] && candidates[0].score === 1.0) {
+          // Exact match - update entity
+          await this.graph.updateEntity(candidates[0].entity.id, update.updates);
+
+          // Add fullName as alias for searchability
+          if (update.updates.fullName) {
+            try {
+              await this.graph.addAlias(candidates[0].entity.id, update.updates.fullName);
+            } catch (error) {
+              console.warn(`Failed to add alias "${update.updates.fullName}":`, error);
+            }
+          }
+        } else if (candidates.length > 1) {
+          // Ambiguous - log warning
+          console.warn(`Ambiguous entity for property update: ${update.entityName}`);
+        } else if (candidates.length === 0) {
+          console.warn(`No matching entity found for property update: ${update.entityName}`);
+        } else {
+          console.warn(`Low confidence match (score=${candidates[0]?.score}) for: ${update.entityName}`);
+        }
+      }
+    }
+
     // Store hypothetical questions with embeddings
     if (extracted.hypotheticalQuestions?.length > 0) {
       const questionsWithEmbeddings = await Promise.all(
