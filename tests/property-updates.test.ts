@@ -157,6 +157,9 @@ describe("Property Updates", () => {
     expect(personEntity).toBeDefined();
     expect(personEntity?.entity.properties?.fullName).toBe("Linda Marie Peterson");
 
+    // Should have added fullName as alias
+    expect(personEntity?.entity.aliases).toContain("Linda Marie Peterson");
+
     // Should not have created separate "Linda Marie Peterson" entity
     const lindaEntity = entities.find((e) =>
       e.entity.normalizedName.includes("linda") && e.entity.normalizedName.includes("peterson")
@@ -184,5 +187,90 @@ describe("Property Updates", () => {
     // Should use camelCase (fullName, not full_name or FullName)
     expect(davidEntity?.entity.properties?.fullName).toBeDefined();
     expect(davidEntity?.entity.properties?.fullName).toContain("David Michael Johnson");
+  });
+
+  test("should add fullName as searchable alias", async () => {
+    const person = `PersonAlias${TEST_SUFFIX}`;
+
+    await system.remember(`${person} is my colleague`);
+    await waitForMemoryStorage();
+
+    await system.remember(`${person}'s full name is Alice Marie Johnson`);
+    await waitForMemoryStorage();
+
+    const entities = await graph.getAllEntities();
+    const entity = entities.find((e) => e.entity.name.includes("PersonAlias"));
+
+    expect(entity).toBeDefined();
+    expect(entity?.entity.properties?.fullName).toBe("Alice Marie Johnson");
+    expect(entity?.entity.aliases).toContain("Alice Marie Johnson");
+
+    // Verify searchability by full name
+    const results = await graph.findSimilarEntities("Alice Marie Johnson");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]?.entity.id).toBe(entity?.entity.id);
+  });
+
+  test("should not add duplicate aliases", async () => {
+    const person = `DupAlias${TEST_SUFFIX}`;
+
+    await system.remember(`${person} is my friend`);
+    await waitForMemoryStorage();
+
+    // Add fullName twice
+    await system.remember(`${person}'s full name is Bob Wilson`);
+    await waitForMemoryStorage();
+
+    await system.remember(`${person}'s full name is Bob Wilson`);
+    await waitForMemoryStorage();
+
+    const entities = await graph.getAllEntities();
+    const entity = entities.find((e) => e.entity.name.includes("DupAlias"));
+
+    // Should only have one alias entry
+    const bobAliases = entity?.entity.aliases?.filter((a) => a === "Bob Wilson");
+    expect(bobAliases?.length).toBe(1);
+  });
+
+  test("should handle case-insensitive duplicate detection", async () => {
+    const person = `CaseAlias${TEST_SUFFIX}`;
+
+    await system.remember(`${person} is my contact`);
+    await waitForMemoryStorage();
+
+    await system.remember(`${person}'s full name is Charlie Brown`);
+    await waitForMemoryStorage();
+
+    const entities = await graph.getAllEntities();
+    const entity = entities.find((e) => e.entity.name.includes("CaseAlias"));
+
+    // Manually try to add same alias with different case
+    if (entity) {
+      await graph.addAlias(entity.entity.id, "charlie brown");
+      await waitForMemoryStorage();
+
+      const updated = await graph.getAllEntities();
+      const updatedEntity = updated.find((e) => e.entity.id === entity.entity.id);
+
+      // Should still have only one alias (original case)
+      expect(updatedEntity?.entity.aliases?.length).toBe(1);
+      expect(updatedEntity?.entity.aliases?.[0]).toBe("Charlie Brown");
+    }
+  });
+
+  test("should not create aliases for non-fullName properties", async () => {
+    const person = `NoAlias${TEST_SUFFIX}`;
+
+    await system.remember(`${person} is my colleague`);
+    await waitForMemoryStorage();
+
+    await system.remember(`${person}'s email is test@example.com`);
+    await waitForMemoryStorage();
+
+    const entities = await graph.getAllEntities();
+    const entity = entities.find((e) => e.entity.name.includes("NoAlias"));
+
+    expect(entity?.entity.properties?.email).toBe("test@example.com");
+    expect(entity?.entity.aliases).not.toContain("test@example.com");
   });
 });

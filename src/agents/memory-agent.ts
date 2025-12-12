@@ -93,6 +93,15 @@ export class MemoryAgent {
         if (candidates.length > 0 && candidates[0] && candidates[0].score === 1.0) {
           // Exact match - update entity
           await this.graph.updateEntity(candidates[0].entity.id, update.updates);
+
+          // Add fullName as alias for searchability
+          if (update.updates.fullName) {
+            try {
+              await this.graph.addAlias(candidates[0].entity.id, update.updates.fullName);
+            } catch (error) {
+              console.warn(`Failed to add alias "${update.updates.fullName}":`, error);
+            }
+          }
         } else if (candidates.length > 1) {
           // Ambiguous - log warning
           console.warn(`Ambiguous entity for property update: ${update.entityName}`);
