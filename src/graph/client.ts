@@ -430,6 +430,29 @@ export class GraphClient {
     }
   }
 
+  async addAlias(entityId: string, alias: string): Promise<void> {
+    const trimmedAlias = alias.trim();
+    if (!trimmedAlias) {
+      return; // Skip empty aliases
+    }
+
+    const session = this.driver.session({ database: this.database });
+    try {
+      await session.executeWrite(async (tx) => {
+        await tx.run(
+          `MATCH (e:Entity {id: $entityId})
+           WITH e, coalesce(e.aliases, []) as currentAliases, toLower(trim($alias)) as normalizedNewAlias
+           WHERE NOT normalizedNewAlias IN [a IN currentAliases | toLower(trim(a))]
+           SET e.aliases = currentAliases + [$alias]
+           RETURN e`,
+          { entityId, alias: trimmedAlias },
+        );
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
   async getEntityHistory(
     entityId: string,
     limit: number = 10,
@@ -929,12 +952,19 @@ export class GraphClient {
 
       return result.records.map((record: any) => {
         const node = record.get("e");
+        const propertiesJson = node.properties.properties;
+        const parsedProperties = propertiesJson
+          ? (typeof propertiesJson === "string" ? JSON.parse(propertiesJson) : propertiesJson)
+          : undefined;
+
         return {
           entity: {
             id: node.properties.id,
             name: node.properties.name,
             type: node.properties.type,
+            normalizedName: node.properties.normalizedName,
             aliases: node.properties.aliases || [],
+            properties: parsedProperties,
           },
           memoryCount: record.get("memoryCount").toNumber(),
         };

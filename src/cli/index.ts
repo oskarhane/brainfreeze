@@ -6,10 +6,8 @@ import * as readline from "readline";
 import { loadConfig } from "../core/config";
 import { MemorySystem } from "../core/memory-system";
 import { GraphClient } from "../graph/client";
-import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 import { ChatSession } from "../core/chat-session";
-import { EntityResolver } from "../core/entity-resolver";
 import type { EntityDisambiguation } from "../core/types";
 
 const program = new Command();
@@ -135,7 +133,7 @@ async function promptDisambiguation(
   });
 }
 
-function createMemorySystem() {
+async function createMemorySystem() {
   const config = loadConfig();
   const graph = new GraphClient(
     config.neo4j.uri,
@@ -143,12 +141,12 @@ function createMemorySystem() {
     config.neo4j.password,
     config.neo4j.database,
   );
-  const claude = new ClaudeClient(
-    config.anthropic.apiKey,
-    config.anthropic.model,
-  );
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
-  return new MemorySystem(graph, claude, openai);
+
+  const { createClaudeModel } = await import('../agents/providers');
+  const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+
+  return new MemorySystem(graph, openai, claudeModel);
 }
 
 program
@@ -161,7 +159,7 @@ program.argument("<text>", "text to remember").action(async (text) => {
   const spinner = ora("Processing...").start();
   let system: MemorySystem | null = null;
   try {
-    system = createMemorySystem();
+    system = await createMemorySystem();
 
     // Prepare memory and check for disambiguation needs
     const { extracted, embedding, disambiguations } =
@@ -210,7 +208,7 @@ program
     ).start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const memories = await system.recall(
         query,
         parseInt(opts.limit),
@@ -256,7 +254,7 @@ program
     const spinner = ora("Thinking...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const result = await system.answer(
         question,
         parseInt(opts.limit),
@@ -292,7 +290,7 @@ program
     const session = new ChatSession();
 
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
 
       console.log(chalk.cyan("\nMemory Chat"));
       console.log(
@@ -646,15 +644,27 @@ program
           const spinner = createSpinner("Thinking...").start();
 
           // Detect if this is a todo command
-          const intent = await system!.claude.detectIntent(trimmed);
+          const intent = await system!.detectIntent(trimmed);
 
           if (intent.type === "list_todos") {
             spinner.stop();
             const todos = await system!.listTodos();
 
+            // Add to session history so references work
+            session.addUserMessage(trimmed);
+
+            let responseText: string;
             if (todos.length === 0) {
-              console.log(chalk.yellow("\nYou have no open todos\n"));
+              responseText = "You have no open todos";
+              console.log(chalk.yellow(`\n${responseText}\n`));
             } else {
+              const todoList = todos.map((t, i) => {
+                const num = `${i + 1}`;
+                return `${num}. ${t.summary}${t.content !== t.summary ? `\n   ${t.content}` : ''}`;
+              }).join('\n');
+
+              responseText = `You have ${todos.length} todo${todos.length === 1 ? "" : "s"}:\n${todoList}`;
+
               console.log(
                 chalk.cyan(
                   `\nYou have ${todos.length} todo${todos.length === 1 ? "" : "s"}:`,
@@ -668,22 +678,66 @@ program
               });
               console.log();
             }
+
+            // Add assistant response to session
+            session.addAssistantMessage(responseText, todos);
+
             showPrompt();
             return;
           }
 
           if (intent.type === "mark_done") {
-            spinner.text = "Finding todo...";
+            // Add user message to session first
+            session.addUserMessage(trimmed);
+
+            spinner.text = "Resolving reference...";
             try {
+              // Resolve references like "that one" using conversation history
+              const history = session.getFormattedHistory();
+              const resolvedQuery = await system!.resolveReference(intent.query, history);
+
+              spinner.text = "Finding todo...";
               const result = await system!.markTodoDone(
-                intent.query,
+                resolvedQuery,
                 intent.summary,
               );
               spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
               console.log(chalk.dim(`  Resolution: ${intent.summary}\n`));
+
+              // Add to session history
+              const responseText = `Marked todo as done: ${result.summary}`;
+              session.addAssistantMessage(responseText, []);
             } catch (error: any) {
               spinner.fail(chalk.red("Failed"));
               console.log(chalk.red(`Error: ${error.message}\n`));
+
+              // Add error to session
+              session.addAssistantMessage(`Failed to mark todo as done: ${error.message}`, []);
+            }
+            showPrompt();
+            return;
+          }
+
+          if (intent.type === "remember") {
+            // Add user message to session first
+            session.addUserMessage(trimmed);
+
+            spinner.text = "Processing...";
+            try {
+              spinner.text = "Storing...";
+              // Remember with conversation context for reference resolution
+              const memoryId = await system!.rememberWithContext(intent.text, session);
+              spinner.succeed(chalk.green(`Stored: ${memoryId.slice(0, 8)}...\n`));
+
+              // Add to session history
+              const responseText = `Stored memory: ${intent.text}`;
+              session.addAssistantMessage(responseText, []);
+            } catch (error: any) {
+              spinner.fail(chalk.red("Failed"));
+              console.log(chalk.red(`Error: ${error.message}\n`));
+
+              // Add error to session
+              session.addAssistantMessage(`Failed to store memory: ${error.message}`, []);
             }
             showPrompt();
             return;
@@ -741,7 +795,7 @@ program
     const spinner = ora("Loading memories...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const memories = await system.listRecent(parseInt(opts.limit));
       spinner.succeed(chalk.green(`Found ${memories.length}`));
 
@@ -777,7 +831,7 @@ program
     const spinner = ora("Exporting memories...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const count = await system.exportMemories(file);
       spinner.succeed(chalk.green(`Exported ${count} memories to ${file}`));
     } catch (error: any) {
@@ -800,7 +854,7 @@ program
     const spinner = ora("Importing memories...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const count = await system.importMemories(file);
       spinner.succeed(chalk.green(`Imported ${count} memories`));
     } catch (error: any) {
@@ -965,6 +1019,8 @@ program
   });
 
 // Resolve command - find and merge duplicate entities
+// TODO: Re-implement resolve command with agents
+/*
 program
   .command("resolve")
   .description("Find and merge duplicate entities")
@@ -1066,6 +1122,7 @@ program
       }
     }
   });
+*/
 
 // Done command - mark todo as done
 program
@@ -1077,7 +1134,7 @@ program
     const spinner = ora("Finding todo...").start();
     let system: MemorySystem | null = null;
     try {
-      system = createMemorySystem();
+      system = await createMemorySystem();
       const result = await system.markTodoDone(query, summary);
       spinner.succeed(chalk.green(`Marked done: ${result.summary}`));
       console.log(chalk.dim(`  Resolution: ${summary}`));

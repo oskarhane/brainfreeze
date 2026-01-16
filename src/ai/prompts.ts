@@ -47,11 +47,14 @@ Relationship types:
 
 Property updates:
 - Detect statements that assign properties to entities
-- "John's last name is Jackson" -> {entityName: "John", updates: {lastName: "Jackson"}}
-- "Sarah's email is sarah@example.com" -> {entityName: "Sarah", updates: {email: "sarah@example.com"}}
-- Property names must be camelCase
+- "John's last name is Jackson" -> entity: John, propertyUpdate: {entityName: "John", updates: {lastName: "Jackson"}}
+- "Sarah's email is sarah@example.com" -> entity: Sarah, propertyUpdate: {entityName: "Sarah", updates: {email: "sarah@example.com"}}
+- "father's name is Åke Vikman" -> entity: father, propertyUpdate: {entityName: "father", updates: {fullName: "Åke Vikman"}}
+- Property names must be camelCase (use fullName for complete person names)
 - Property values must be strings
-- Extract both the entity AND the property update
+- CRITICAL: When text assigns a full name to an entity (e.g., "X's name is Y"), ONLY extract X as an entity, NOT Y
+- The full name Y should ONLY appear in the propertyUpdate, not as a separate entity
+- Example: "his name is Åke Vikman" -> extract entity "father" (after reference resolution) with propertyUpdate, NOT a separate "Åke Vikman" entity
 
 IMPORTANT: For first-person statements (I, me, my), use "User" as the entity name.
 - "I hate oatmilk" → entity: User, relationship: User -[DISLIKES]-> oatmilk

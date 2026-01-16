@@ -9,7 +9,7 @@ describe('Hybrid Search', () => {
   beforeAll(async () => {
     await loadTestEnv();
     await setupTestDatabase();
-    system = createTestMemorySystem();
+    system = await createTestMemorySystem();
 
     // Store test memories
     await system.remember('John works at Google on AI projects');

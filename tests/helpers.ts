@@ -1,7 +1,6 @@
 import { $ } from 'bun';
 import { loadConfig } from '../src/core/config';
 import { GraphClient } from '../src/graph/client';
-import { ClaudeClient } from '../src/ai/claude';
 import { OpenAIClient } from '../src/ai/openai';
 import { MemorySystem } from '../src/core/memory-system';
 
@@ -20,7 +19,7 @@ export async function loadTestEnv() {
   }
 }
 
-export function createTestMemorySystem(): MemorySystem {
+export async function createTestMemorySystem(): Promise<MemorySystem> {
   const config = loadConfig();
   const graph = new GraphClient(
     config.neo4j.uri,
@@ -28,20 +27,22 @@ export function createTestMemorySystem(): MemorySystem {
     config.neo4j.password,
     config.neo4j.database
   );
-  const claude = new ClaudeClient(config.anthropic.apiKey, config.anthropic.model);
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
 
-  return new MemorySystem(graph, claude, openai);
+  const { createClaudeModel } = await import('../src/agents/providers');
+  const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+
+  return new MemorySystem(graph, openai, claudeModel);
 }
 
 export async function setupTestDatabase() {
   console.log('Setting up test database...');
 
-  // Check if Neo4j is running
+  // Check if Neo4j is running (docker maps 7475:7474)
   try {
-    await fetch('http://localhost:7474');
+    await fetch('http://localhost:7475');
   } catch (error) {
-    throw new Error('Neo4j is not running at localhost:7474. Start with: docker compose up -d');
+    throw new Error('Neo4j is not running at localhost:7475. Start with: docker compose up -d');
   }
 
   await loadTestEnv();

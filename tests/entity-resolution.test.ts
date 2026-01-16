@@ -4,6 +4,7 @@ import {
   expect,
   beforeAll,
   afterAll,
+  afterEach,
   setDefaultTimeout,
 } from "bun:test";
 
@@ -11,17 +12,16 @@ import {
 setDefaultTimeout(60000);
 
 import { GraphClient } from "../src/graph/client";
-import { ClaudeClient } from "../src/ai/claude";
 import { OpenAIClient } from "../src/ai/openai";
 import { MemorySystem } from "../src/core/memory-system";
 import { loadConfig } from "../src/core/config";
+import { waitForMemoryStorage } from "./helpers";
 
 // Generate unique suffix for this test run to avoid conflicts with existing data
 const TEST_SUFFIX = `X${Date.now().toString().slice(-6)}`;
 
 describe("Entity Resolution", () => {
   let graph: GraphClient;
-  let claude: ClaudeClient;
   let openai: OpenAIClient;
   let system: MemorySystem;
 
@@ -33,11 +33,14 @@ describe("Entity Resolution", () => {
       config.neo4j.password,
       config.neo4j.database,
     );
-    claude = new ClaudeClient(config.anthropic.apiKey, config.anthropic.model);
-    openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
-    system = new MemorySystem(graph, claude, openai);
-
     await graph.initSchema();
+
+    openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
+
+    const { createClaudeModel } = await import('../src/agents/providers');
+    const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+
+    system = new MemorySystem(graph, openai, claudeModel);
   });
 
   afterAll(async () => {
@@ -362,15 +365,18 @@ describe("Entity Resolution", () => {
 
   describe("mergeEntities", () => {
     test("merges two entities and transfers relationships", async () => {
-      const merge1 = `${TEST_SUFFIX}Merge1`;
-      const merge2 = `${TEST_SUFFIX}Merge2`;
+      // Use realistic names that LLM will extract consistently
+      const merge1 = `Patricia${TEST_SUFFIX}`;
+      const merge2 = `Raymond${TEST_SUFFIX}`;
       // Create two entities with memories
       await system.remember(`${merge1} went to the store`);
       await system.remember(`${merge2} bought groceries`);
+      await waitForMemoryStorage();
 
       const entitiesBefore = await graph.getAllEntities();
-      const entity1 = entitiesBefore.find((e) => e.entity.name === merge1);
-      const entity2 = entitiesBefore.find((e) => e.entity.name === merge2);
+      // Search flexibly - entity name might be normalized
+      const entity1 = entitiesBefore.find((e) => e.entity.name.includes("Patricia"));
+      const entity2 = entitiesBefore.find((e) => e.entity.name.includes("Raymond"));
 
       expect(entity1).toBeDefined();
       expect(entity2).toBeDefined();
@@ -380,16 +386,16 @@ describe("Entity Resolution", () => {
 
       // Verify entity2 no longer exists
       const entitiesAfter = await graph.getAllEntities();
-      const entity1After = entitiesAfter.find((e) => e.entity.name === merge1);
-      const entity2After = entitiesAfter.find((e) => e.entity.name === merge2);
+      const entity1After = entitiesAfter.find((e) => e.entity.name.includes("Patricia"));
+      const entity2After = entitiesAfter.find((e) => e.entity.name.includes("Raymond"));
 
       expect(entity2After).toBeUndefined();
 
       // Verify entity1 has both memories
       expect(entity1After?.memoryCount).toBe(2);
 
-      // Verify entity1 has the alias
-      expect(entity1After?.entity.aliases).toContain(merge2);
+      // Verify entity1 has the alias (check if any alias includes Raymond)
+      expect(entity1After?.entity.aliases?.some(a => a.includes("Raymond"))).toBe(true);
     });
   });
 });

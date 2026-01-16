@@ -5,10 +5,9 @@ import { z } from "zod/v4";
 import { loadConfig } from "../core/config";
 import { MemorySystem } from "../core/memory-system";
 import { GraphClient } from "../graph/client";
-import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 
-function createMemorySystem(): MemorySystem {
+async function createMemorySystem(): Promise<MemorySystem> {
   const config = loadConfig();
   const graph = new GraphClient(
     config.neo4j.uri,
@@ -16,12 +15,15 @@ function createMemorySystem(): MemorySystem {
     config.neo4j.password,
     config.neo4j.database,
   );
-  const claude = new ClaudeClient(
+  const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
+
+  const { createClaudeModel } = await import("../agents/providers");
+  const claudeModel = createClaudeModel(
     config.anthropic.apiKey,
     config.anthropic.model,
   );
-  const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
-  return new MemorySystem(graph, claude, openai);
+
+  return new MemorySystem(graph, openai, claudeModel);
 }
 
 const server = new McpServer({
@@ -39,7 +41,7 @@ server.registerTool(
     },
   },
   async ({ text }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const id = await system.remember(text);
       return {
@@ -57,6 +59,80 @@ server.registerTool(
 );
 
 server.registerTool(
+  "summary",
+  {
+    title: "Memory Summary",
+    description:
+      "Get counts of memories by type (episodic, semantic, todo, reflection)",
+    inputSchema: {},
+  },
+  async () => {
+    const system = await createMemorySystem();
+    try {
+      const memories = await system.listRecent(1000);
+      const summary = {
+        episodic: memories.filter((m) => m.type === "episodic").length,
+        semantic: memories.filter((m) => m.type === "semantic").length,
+        todo: memories.filter((m) => m.type === "todo").length,
+        reflection: memories.filter((m) => m.type === "reflection").length,
+        total: memories.length,
+      };
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(summary),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
+server.registerTool(
+  "recent",
+  {
+    title: "Recent Memories",
+    description: "List recent memories with optional limit",
+    inputSchema: {
+      limit: z
+        .number()
+        .optional()
+        .default(10)
+        .describe("Number of recent memories to return (default 10)"),
+    },
+  },
+  async ({ limit }) => {
+    const system = await createMemorySystem();
+    try {
+      const memories = await system.listRecent(limit ?? 10);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              count: memories.length,
+              memories: memories.map((m) => ({
+                id: m.id,
+                type: m.type,
+                summary: m.summary,
+                content: m.content,
+                timestamp: m.timestamp,
+                status: m.status,
+              })),
+            }),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
+server.registerTool(
   "list_todos",
   {
     title: "List Open Todos",
@@ -64,7 +140,7 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const todos = await system.listTodos();
       return {
@@ -110,7 +186,7 @@ server.registerTool(
     },
   },
   async ({ question, limit, vectorOnly }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const result = await system.answer(
         question,
@@ -153,7 +229,7 @@ server.registerTool(
     },
   },
   async ({ entityName, limit }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       // Find entity
       const candidates = await system.graph.findSimilarEntities(entityName);
@@ -223,7 +299,7 @@ server.registerTool(
     },
   },
   async ({ todoQuery, resolutionSummary }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       const result = await system.markTodoDone(todoQuery, resolutionSummary);
       return {
@@ -277,7 +353,7 @@ server.registerTool(
     },
   },
   async ({ keepSearch, removeSearch, keepId, removeId }) => {
-    const system = createMemorySystem();
+    const system = await createMemorySystem();
     try {
       // If IDs provided, do the merge
       if (keepId && removeId) {

@@ -26,13 +26,13 @@ Personal memory system using AI + graph database. Stores memories as a knowledge
 ```
 Input: "Had coffee with Sarah at Blue Bottle yesterday"
                     ↓
-        Claude extracts:
+        MemoryAgent extracts:
         - entities: Sarah (person), Blue Bottle (place)
         - relationships: Sarah → VISITED → Blue Bottle
         - type: episodic
         - hypothetical questions
                     ↓
-        OpenAI generates embeddings
+        MemoryAgent generates embeddings
                     ↓
         Neo4j stores:
         - Memory node (with embedding)
@@ -46,13 +46,13 @@ Input: "Had coffee with Sarah at Blue Bottle yesterday"
 ```
 Query: "Where did I have coffee?"
                     ↓
-        Embed query (OpenAI)
+        RetrieveAgent embeds query
                     ↓
         Hybrid search:
         - Vector similarity on memories + hypothetical questions
         - Graph expansion through shared entities
                     ↓
-        Claude synthesizes answer from relevant memories
+        RetrieveAgent synthesizes answer from relevant memories
 ```
 
 ### Entity Resolution
@@ -141,22 +141,33 @@ bun run mcp
 ## Architecture
 
 ```
-CLI/MCP Interface
+CLI/Chat/MCP Interface
         ↓
     MemorySystem (orchestration)
         ↓
+┌──────────┼──────────┼──────────┐
+│          │          │          │
+IntentAgent MemoryAgent RetrieveAgent
+(route)   (extract/store) (synthesize)
+        ↓
 ┌───────┼───────┐
 │       │       │
-Neo4j  Claude  OpenAI
-(graph) (LLM)  (embeddings)
+Neo4j  Vercel AI SDK
+(graph) (Anthropic + OpenAI)
 ```
+
+**Agents**:
+- `IntentAgent` - Routes user input to correct operation (remember/recall/todo)
+- `MemoryAgent` - Extracts entities, stores memories, manages todos
+- `RetrieveAgent` - Searches and synthesizes answers from memories
 
 ## Tech Stack
 
 - Bun + TypeScript
+- Vercel AI SDK (agent framework)
 - Neo4j (graph + vector indexes)
-- Claude Sonnet 4.5 (extraction/synthesis)
-- OpenAI text-embedding-3-small
+- Claude Sonnet 4.5 (extraction/synthesis via AI SDK)
+- OpenAI text-embedding-3-small (embeddings via AI SDK)
 - MCP protocol
 
 ## Testing

@@ -1,5 +1,4 @@
 import { GraphClient } from "../graph/client";
-import { ClaudeClient } from "../ai/claude";
 import { OpenAIClient } from "../ai/openai";
 import type {
   Memory,
@@ -8,139 +7,39 @@ import type {
   EntityDisambiguation,
 } from "./types";
 import type { ChatSession } from "./chat-session";
+import { IntentAgent, type Intent } from "../agents/intent-agent";
+import { RetrieveAgent } from "../agents/retrieve-agent";
+import { MemoryAgent } from "../agents/memory-agent";
+import type { LanguageModel } from "ai";
 
 export class MemorySystem {
+  private intentAgent: IntentAgent;
+  private retrieveAgent: RetrieveAgent;
+  private memoryAgent: MemoryAgent;
+
   constructor(
     public graph: GraphClient,
-    private claude: ClaudeClient,
     private openai: OpenAIClient,
-  ) {}
+    private claudeModel: LanguageModel<any>,
+  ) {
+    this.intentAgent = new IntentAgent(claudeModel);
+    this.retrieveAgent = new RetrieveAgent(claudeModel);
+    this.memoryAgent = new MemoryAgent(claudeModel, graph, openai);
+  }
 
   async remember(text: string): Promise<string> {
-    // 1. Extract entities & metadata via Claude
-    const extracted = await this.claude.extract(text);
-
-    // 2. Generate embedding via OpenAI
-    const embedding = await this.openai.generateEmbedding(text);
-
-    // 3. Handle property updates
-    if (extracted.propertyUpdates && extracted.propertyUpdates.length > 0) {
-      for (const update of extracted.propertyUpdates) {
-        const candidates = await this.graph.findSimilarEntities(
-          update.entityName,
-        );
-
-        if (
-          candidates.length > 0 &&
-          candidates[0] &&
-          candidates[0].score === 1.0
-        ) {
-          // Exact match - update entity
-          await this.graph.updateEntity(
-            candidates[0].entity.id,
-            update.updates,
-          );
-        } else if (candidates.length > 1) {
-          // Ambiguous - log warning
-          console.warn(
-            `Ambiguous entity for property update: ${update.entityName}`,
-          );
-        }
-        // No match - entity will be created in storeMemory below
-      }
-    }
-
-    // 4. Build memory object
-    const memory: Memory = {
-      id: crypto.randomUUID(),
-      content: text,
-      summary: extracted.summary,
-      type: extracted.type,
-      timestamp: new Date(),
-      embedding,
-      metadata: extracted.metadata,
-      status: extracted.type === "todo" ? "open" : undefined,
-    };
-
-    // 5. Store in graph
-    await this.graph.storeMemory(
-      memory,
-      extracted.entities,
-      extracted.relationships,
-    );
-
-    // 6. Store hypothetical questions with embeddings
-    if (extracted.hypotheticalQuestions?.length > 0) {
-      const questionsWithEmbeddings = await Promise.all(
-        extracted.hypotheticalQuestions.map(async (question) => ({
-          question,
-          embedding: await this.openai.generateEmbedding(question),
-        })),
-      );
-      await this.graph.storeHypotheticalQuestions(
-        memory.id,
-        questionsWithEmbeddings,
-      );
-    }
-
-    return memory.id;
+    return this.memoryAgent.remember(text);
   }
 
   async listTodos(): Promise<Memory[]> {
-    const allMemories = await this.graph.getAllMemories();
-    return allMemories.filter((m) => m.type === "todo" && m.status !== "done");
+    return this.memoryAgent.listTodos();
   }
 
   async markTodoDone(
     todoQuery: string,
     resolutionSummary: string,
   ): Promise<{ id: string; summary: string }> {
-    // 1. Find matching todo(s)
-    const embedding = await this.openai.generateEmbedding(todoQuery);
-    const memories = await this.graph.searchByVector(embedding, 10);
-
-    // Filter to open todos only
-    const openTodos = memories.filter(
-      (m) => m.type === "todo" && m.status !== "done",
-    );
-
-    if (openTodos.length === 0) {
-      throw new Error("No matching open todos found");
-    }
-
-    if (openTodos.length > 1) {
-      // Ask Claude to disambiguate
-      const choice = await this.claude.disambiguateTodo(
-        todoQuery,
-        openTodos,
-        resolutionSummary,
-      );
-
-      if (choice === -1) {
-        throw new Error(
-          `Ambiguous: found ${openTodos.length} todos. Be more specific: ${openTodos.map((t, i) => `${i + 1}. ${t.summary}`).join("; ")}`,
-        );
-      }
-
-      const todo = openTodos[choice];
-      if (!todo) {
-        throw new Error("Invalid todo selection");
-      }
-
-      await this.graph.updateTodoStatus(todo.id, "done", resolutionSummary);
-
-      return { id: todo.id, summary: todo.summary };
-    }
-
-    // Single match - mark it done
-    const todo = openTodos[0];
-    if (!todo) {
-      throw new Error("No todo found");
-    }
-
-    await this.graph.updateTodoStatus(todo.id, "done", resolutionSummary);
-
-    return { id: todo.id, summary: todo.summary };
+    return this.memoryAgent.markTodoDone(todoQuery, resolutionSummary);
   }
 
   async recall(query: string, limit = 5, useHybrid = true): Promise<Memory[]> {
@@ -169,15 +68,13 @@ export class MemorySystem {
     // 2. Get relevant entities
     const entities = await this.graph.getAllEntities();
 
-    // 3. Synthesize answer - use chat method if history provided
-    const result = conversationHistory
-      ? await this.claude.chatAnswer(
-          question,
-          memories,
-          conversationHistory,
-          entities,
-        )
-      : await this.claude.synthesizeAnswer(question, memories, entities);
+    // 3. Synthesize answer using RetrieveAgent
+    const result = await this.retrieveAgent.synthesizeAnswer(
+      question,
+      memories,
+      entities,
+      conversationHistory,
+    );
 
     // 4. Filter to only memories that were actually used
     const usedMemories = result.usedMemoryIndices
@@ -231,108 +128,16 @@ export class MemorySystem {
     embedding: number[];
     disambiguations: EntityDisambiguation[];
   }> {
-    // 1. Extract entities & metadata via Claude
-    const extracted = await this.claude.extract(text);
-
-    // 2. Generate embedding via OpenAI
-    const embedding = await this.openai.generateEmbedding(text);
-
-    // 3. Check each entity for disambiguation needs
-    const disambiguations: EntityDisambiguation[] = [];
-
-    for (const entity of extracted.entities) {
-      const candidates = await this.graph.findSimilarEntities(
-        entity.name,
-        entity.type,
-      );
-
-      // If exact match (score 1.0), no disambiguation needed
-      if (candidates.length === 1 && candidates[0]?.score === 1.0) {
-        continue;
-      }
-
-      // If multiple candidates, try auto-resolve with Claude
-      if (candidates.length > 1) {
-        const result = await this.claude.disambiguateEntity(
-          entity.name,
-          entity.type,
-          text,
-          candidates,
-        );
-
-        if (result.selectedIndex > 0 && result.confidence === "high") {
-          // Auto-resolved with high confidence
-          disambiguations.push({
-            extractedEntity: entity,
-            candidates,
-            autoResolved: {
-              index: result.selectedIndex - 1,
-              reasoning: result.reasoning,
-            },
-          });
-        } else if (
-          result.selectedIndex === -1 ||
-          result.confidence !== "high"
-        ) {
-          // Need user input
-          disambiguations.push({
-            extractedEntity: entity,
-            candidates,
-          });
-        }
-        // selectedIndex === 0 means new entity, no disambiguation needed
-      }
-    }
-
-    return { extracted, embedding, disambiguations };
+    return this.memoryAgent.prepareMemory(text);
   }
 
   async storeMemory(
     text: string,
     extracted: ExtractedMemory,
     embedding: number[],
-    entityResolutions?: Map<string, string>, // entityName -> resolvedEntityId
+    entityResolutions?: Map<string, string>,
   ): Promise<string> {
-    // Build memory object
-    const memory: Memory = {
-      id: crypto.randomUUID(),
-      content: text,
-      summary: extracted.summary,
-      type: extracted.type,
-      timestamp: new Date(),
-      embedding,
-      metadata: extracted.metadata,
-    };
-
-    // Apply entity resolutions if provided
-    const resolvedEntities = extracted.entities.map((e) => {
-      const resolvedId = entityResolutions?.get(e.name);
-      return resolvedId ? { ...e, resolvedId } : e;
-    });
-
-    // Store in graph - pass resolutions so relationships use correct entities
-    await this.graph.storeMemory(
-      memory,
-      resolvedEntities,
-      extracted.relationships,
-      entityResolutions,
-    );
-
-    // Store hypothetical questions with embeddings
-    if (extracted.hypotheticalQuestions?.length > 0) {
-      const questionsWithEmbeddings = await Promise.all(
-        extracted.hypotheticalQuestions.map(async (question) => ({
-          question,
-          embedding: await this.openai.generateEmbedding(question),
-        })),
-      );
-      await this.graph.storeHypotheticalQuestions(
-        memory.id,
-        questionsWithEmbeddings,
-      );
-    }
-
-    return memory.id;
+    return this.memoryAgent.storeMemory(text, extracted, embedding, entityResolutions);
   }
 
   async rememberWithContext(
@@ -341,7 +146,7 @@ export class MemorySystem {
   ): Promise<string> {
     // Resolve references using conversation history
     const history = session.getFormattedHistory();
-    const expandedText = await this.claude.resolveReferences(text, history);
+    const expandedText = await this.memoryAgent.resolveReferences(text, history);
 
     // Store the expanded text (no disambiguation in simple mode)
     return this.remember(expandedText);
@@ -358,7 +163,7 @@ export class MemorySystem {
   }> {
     // Resolve references using conversation history
     const history = session.getFormattedHistory();
-    const expandedText = await this.claude.resolveReferences(text, history);
+    const expandedText = await this.memoryAgent.resolveReferences(text, history);
 
     // Prepare memory with disambiguation
     const { extracted, embedding, disambiguations } =
@@ -386,6 +191,34 @@ export class MemorySystem {
     session.addAssistantMessage(result.answer, result.sources);
 
     return result;
+  }
+
+  async resolveReference(text: string, conversationHistory: string): Promise<string> {
+    return this.memoryAgent.resolveReferences(text, conversationHistory);
+  }
+
+  async detectIntent(
+    text: string,
+  ): Promise<
+    | { type: "list_todos" }
+    | { type: "mark_done"; query: string; summary: string }
+    | { type: "remember"; text: string }
+    | { type: "normal" }
+  > {
+    const intent = await this.intentAgent.detectIntent(text);
+
+    // Map new intent format to old format for backwards compatibility
+    switch (intent.intent) {
+      case 'todo_list':
+        return { type: 'list_todos' };
+      case 'todo_mark_done':
+        return { type: 'mark_done', query: intent.query!, summary: intent.summary! };
+      case 'remember':
+        return { type: 'remember', text: intent.text! };
+      case 'retrieve':
+      default:
+        return { type: 'normal' };
+    }
   }
 
   async close(): Promise<void> {
