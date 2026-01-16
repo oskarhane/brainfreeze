@@ -2,6 +2,52 @@
 
 Personal memory system using AI + graph database. Stores memories as a knowledge graph, extracts entities/relationships automatically, enables semantic + graph-based retrieval.
 
+![image](.github/graph.png)
+
+## Quickstart
+
+```bash
+docker compose up -d
+
+cp .env.example .env
+# Add secrets to the new file
+
+bun run memory init
+
+bun run memory import ./export-file.json
+```
+
+Now go to http://localhost:7475 and query it.  
+Or go to the terminal and type `bun run memory chat` and have an interactive chat (see below for commands).  
+Try things like: 
+
+```
+Meeting with abk soon, what do we know about him?
+I already bought that beer for abk
+What are my todos?
+```
+
+If you want to connect to it via MCP, add this configuration to the client:
+
+```json
+{
+  "mcpServers": {
+    "brainfreeze": {
+      "command": "bun",
+      "args": ["run", "mcp"],
+      "cwd": "/path/to/brainfreeze",
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7688",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "password",
+        "ANTHROPIC_API_KEY": "your-key",
+        "OPENAI_API_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
 ## Key Concepts
 
 **Memory Types**
