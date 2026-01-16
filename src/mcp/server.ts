@@ -17,8 +17,11 @@ async function createMemorySystem(): Promise<MemorySystem> {
   );
   const openai = new OpenAIClient(config.openai.apiKey, config.openai.model);
 
-  const { createClaudeModel } = await import('../agents/providers');
-  const claudeModel = createClaudeModel(config.anthropic.apiKey, config.anthropic.model);
+  const { createClaudeModel } = await import("../agents/providers");
+  const claudeModel = createClaudeModel(
+    config.anthropic.apiKey,
+    config.anthropic.model,
+  );
 
   return new MemorySystem(graph, openai, claudeModel);
 }
@@ -46,6 +49,80 @@ server.registerTool(
           {
             type: "text",
             text: JSON.stringify({ id }),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
+server.registerTool(
+  "summary",
+  {
+    title: "Memory Summary",
+    description:
+      "Get counts of memories by type (episodic, semantic, todo, reflection)",
+    inputSchema: {},
+  },
+  async () => {
+    const system = await createMemorySystem();
+    try {
+      const memories = await system.listRecent(1000);
+      const summary = {
+        episodic: memories.filter((m) => m.type === "episodic").length,
+        semantic: memories.filter((m) => m.type === "semantic").length,
+        todo: memories.filter((m) => m.type === "todo").length,
+        reflection: memories.filter((m) => m.type === "reflection").length,
+        total: memories.length,
+      };
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(summary),
+          },
+        ],
+      };
+    } finally {
+      await system.close();
+    }
+  },
+);
+
+server.registerTool(
+  "recent",
+  {
+    title: "Recent Memories",
+    description: "List recent memories with optional limit",
+    inputSchema: {
+      limit: z
+        .number()
+        .optional()
+        .default(10)
+        .describe("Number of recent memories to return (default 10)"),
+    },
+  },
+  async ({ limit }) => {
+    const system = await createMemorySystem();
+    try {
+      const memories = await system.listRecent(limit ?? 10);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              count: memories.length,
+              memories: memories.map((m) => ({
+                id: m.id,
+                type: m.type,
+                summary: m.summary,
+                content: m.content,
+                timestamp: m.timestamp,
+                status: m.status,
+              })),
+            }),
           },
         ],
       };
